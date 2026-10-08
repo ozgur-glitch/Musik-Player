@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "musik-player",
+    "slug": "musik-player",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#121212"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.oc2003.musikplayer"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./icon.png",
+        "backgroundColor": "#121212"
+      },
+      "package": "com.oc2003.musikplayer"
+    },
+    "web": {
+      "favicon": "./icon.png"
+    },
+    "owner": "oc2003",
+    "extra": {
+      "eas": {
+        "projectId": "4cf00b5c-f907-40e9-bbfa-a97db4ccfc6b"
+      }
+    }
+  }
+}
