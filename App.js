@@ -25,21 +25,22 @@ export default function App() {
   const [stats, setStats] = useState({});
   
   const [sound, setSound] = useState(null);
-  const [currentTrack, setCurrentTrack] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTrackIndex, setCurrentTrackIndex] = useState(null);
   const [loading, setLoading] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
 
   const lastPositionRef = useRef(0);
-  const currentSongRef = useRef('');
+  const currentSongNameRef = useRef('');
 
-  // 1. Beim App-Start gespeicherte Daten laden
+  // 1. Daten beim App-Start laden
   useEffect(() => {
     loadSavedData();
   }, []);
 
-  // 2. Daten automatisch speichern, wenn sie sich ändern
+  // 2. Automatisches Speichern bei Änderungen
   useEffect(() => {
-    AsyncStorage.setItem(STORAGE_KEY_TRACKS, JSON.stringify(tracks));
+    if (tracks.length > 0) AsyncStorage.setItem(STORAGE_KEY_TRACKS, JSON.stringify(tracks));
   }, [tracks]);
 
   useEffect(() => {
@@ -60,22 +61,28 @@ export default function App() {
       if (savedPlaylists) setPlaylists(JSON.parse(savedPlaylists));
       if (savedStats) setStats(JSON.parse(savedStats));
     } catch (e) {
-      console.log('Fehler beim Laden der Daten:', e);
+      console.log('Fehler beim Laden:', e);
     }
   }
 
-  // Tracking-System für Hörzeit
+  // Live-Zeitmessung für die Rangliste
   function handlePlaybackStatusUpdate(status) {
     if (status.isLoaded && status.isPlaying) {
       if (lastPositionRef.current > 0 && status.positionMillis > lastPositionRef.current) {
         const deltaSeconds = (status.positionMillis - lastPositionRef.current) / 1000;
         if (deltaSeconds > 0 && deltaSeconds < 5) {
-          setStats((prev) => ({
-            ...prev,
-            [currentSongRef.current]: (prev[currentSongRef.current] || 0) + deltaSeconds,
-          }));
+          setStats((prev) => {
+            const songName = currentSongNameRef.current;
+            if (!songName) return prev;
+            return {
+              ...prev,
+              [songName]: (prev[songName] || 0) + deltaSeconds,
+            };
+          });
         }
       }
+      lastPositionRef.current = status.positionMillis;
+    } else if (status.isLoaded && !status.isPlaying) {
       lastPositionRef.current = status.positionMillis;
     }
   }
@@ -98,11 +105,11 @@ export default function App() {
         });
       }
     } catch (e) {
-      console.log('Fehler bei Dateiauswahl:', e);
+      console.log('Fehler Dateiauswahl:', e);
     }
   }
 
-  // Ganzen Ordner auf Android auswählen & nach MP3s scannen
+  // Ordner scannen
   async function pickFolder() {
     try {
       const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
@@ -128,16 +135,19 @@ export default function App() {
     } catch (e) {
       console.log('Ordner-Scan Fehler:', e);
       setLoading(false);
-      Alert.alert('Hinweis', 'Ordner-Auswahl wird auf diesem Gerät evtl. nicht unterstützt. Nutze Einzeldateien.');
+      Alert.alert('Hinweis', 'Ordner-Auswahl wird auf diesem Gerät evtl. nicht unterstützt.');
     }
   }
 
-  // Song abspielen
-  async function playTrack(track) {
+  // Song abspielen über Index
+  async function playTrackByIndex(index) {
+    if (index < 0 || index >= tracks.length) return;
+
     try {
       setLoading(true);
-      setCurrentTrack(track);
-      currentSongRef.current = track.name;
+      const track = tracks[index];
+      setCurrentTrackIndex(index);
+      currentSongNameRef.current = track.name;
       lastPositionRef.current = 0;
 
       await Audio.setAudioModeAsync({
@@ -158,6 +168,7 @@ export default function App() {
 
       newSound.setOnPlaybackStatusUpdate(handlePlaybackStatusUpdate);
       setSound(newSound);
+      setIsPlaying(true);
       setLoading(false);
     } catch (e) {
       console.log('Abspielfehler:', e);
@@ -165,52 +176,137 @@ export default function App() {
     }
   }
 
+  // Player Steuerung: Pause / Play toggle
+  async function togglePlayPause() {
+    if (!sound) return;
+    if (isPlaying) {
+      await sound.pauseAsync();
+      setIsPlaying(false);
+    } else {
+      await sound.playAsync();
+      setIsPlaying(true);
+    }
+  }
+
+  // Player Steuerung: Stopp
+  async function stopAudio() {
+    if (!sound) return;
+    await sound.stopAsync();
+    setIsPlaying(false);
+  }
+
+  // Nächstes / Vorheriges Lied
+  function playNextTrack() {
+    if (currentTrackIndex !== null && currentTrackIndex < tracks.length - 1) {
+      playTrackByIndex(currentTrackIndex + 1);
+    }
+  }
+
+  function playPreviousTrack() {
+    if (currentTrackIndex !== null && currentTrackIndex > 0) {
+      playTrackByIndex(currentTrackIndex - 1);
+    }
+  }
+
   // Playlist erstellen
   function createPlaylist() {
     if (!newPlaylistName.trim()) return;
-    const newPl = { id: Date.now().toString(), name: newPlaylistName.trim(), trackIds: [] };
+    const newPl = { id: Date.now().toString(), name: newPlaylistName.trim(), tracks: [] };
     setPlaylists((prev) => [...prev, newPl]);
     setNewPlaylistName('');
+  }
+
+  // Lied zu einer Playlist hinzufügen
+  function addTrackToPlaylist(track) {
+    if (playlists.length === 0) {
+      Alert.alert('Hinweis', 'Erstelle zuerst eine Playlist!');
+      return;
+    }
+
+    const playlistOptions = playlists.map((pl) => ({
+      text: pl.name,
+      onPress: () => {
+        setPlaylists((prevPlaylists) =>
+          prevPlaylists.map((p) => {
+            if (p.id === pl.id) {
+              const alreadyExists = p.tracks.some((t) => t.id === track.id);
+              if (alreadyExists) return p;
+              return { ...p, tracks: [...p.tracks, track] };
+            }
+            return p;
+          })
+        );
+      },
+    }));
+
+    playlistOptions.push({ text: 'Abbrechen', style: 'cancel' });
+
+    Alert.alert('Playlist wählen', `Füge "${track.name}" hinzu zu:`, playlistOptions);
   }
 
   // Sortierte Rangliste
   const sortedRanking = Object.keys(stats)
     .map((name) => ({ name, seconds: Math.floor(stats[name]) }))
+    .filter((item) => item.seconds > 0)
     .sort((a, b) => b.seconds - a.seconds);
+
+  const currentTrack = currentTrackIndex !== null ? tracks[currentTrackIndex] : null;
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>🎵 Mein MP3 Player</Text>
+      <Text style={styles.title}>🎵 MP3 Player</Text>
 
-      {/* Buttons zum Hinzufügen */}
+      {/* Import Buttons */}
       <View style={styles.buttonRow}>
         <Button title="+ Datei" onPress={pickSingleTrack} />
         <View style={{ width: 10 }} />
         <Button title="+ Ordner" onPress={pickFolder} color="#28a745" />
       </View>
 
-      {/* Aktuell laufender Song */}
-      {currentTrack && (
-        <Text style={styles.nowPlaying}>▶ Läuft: {currentTrack.name}</Text>
-      )}
+      {/* PLAYER BEREICH WITH CONTROLS */}
+      <View style={styles.playerBox}>
+        <Text style={styles.nowPlayingTitle}>Aktueller Titel:</Text>
+        <Text style={styles.nowPlayingName} numberOfLines={1}>
+          {currentTrack ? currentTrack.name : 'Kein Titel ausgewählt'}
+        </Text>
 
-      {loading && <ActivityIndicator size="large" color="#0000ff" style={{ marginVertical: 10 }} />}
+        {/* Steuerungsknöpfe */}
+        <View style={styles.controlsRow}>
+          <TouchableOpacity style={styles.controlBtn} onPress={playPreviousTrack}>
+            <Text style={styles.controlText}>⏮</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.controlBtnMain} onPress={togglePlayPause}>
+            <Text style={styles.controlText}>{isPlaying ? '⏸ Pause' : '▶ Play'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.controlBtn} onPress={stopAudio}>
+            <Text style={styles.controlText}>⏹ Stopp</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.controlBtn} onPress={playNextTrack}>
+            <Text style={styles.controlText}>⏭</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {loading && <ActivityIndicator size="large" color="#0000ff" style={{ marginVertical: 5 }} />}
 
       {/* Musikbibliothek */}
-      <Text style={styles.sectionTitle}>📁 Musikbibliothek ({tracks.length})</Text>
+      <Text style={styles.sectionTitle}>📁 Bibliothek ({tracks.length})</Text>
       <FlatList
         style={styles.list}
         data={tracks}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <TouchableOpacity style={styles.trackItem} onPress={() => playTrack(item)}>
-            <Text style={styles.trackName} numberOfLines={1}>{item.name}</Text>
-          </TouchableOpacity>
+        renderItem={({ item, index }) => (
+          <View style={styles.trackItem}>
+            <TouchableOpacity style={{ flex: 1 }} onPress={() => playTrackByIndex(index)}>
+              <Text style={styles.trackName} numberOfLines={1}>{item.name}</Text>
+            </TouchableOpacity>
+            <Button title="+ Playlist" onPress={() => addTrackToPlaylist(item)} color="#6c757d" />
+          </View>
         )}
       />
 
-      {/* Playlists Bereich */}
-      <Text style={styles.sectionTitle}>📜 Playlists</Text>
+      {/* Playlists */}
+      <Text style={styles.sectionTitle}>📜 Playlists ({playlists.length})</Text>
       <View style={styles.playlistInputRow}>
         <TextInput
           style={styles.input}
@@ -227,7 +323,7 @@ export default function App() {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <View style={styles.playlistCard}>
-            <Text style={styles.playlistTitle}>{item.name} ({item.trackIds.length} Songs)</Text>
+            <Text style={styles.playlistTitle}>{item.name} ({item.tracks ? item.tracks.length : 0} Songs)</Text>
           </View>
         )}
       />
@@ -250,19 +346,25 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 15, paddingTop: 50, backgroundColor: '#f8f9fa' },
-  title: { fontSize: 22, fontWeight: 'bold', textAlign: 'center', marginBottom: 15 },
-  buttonRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 15 },
-  nowPlaying: { fontSize: 14, fontWeight: 'bold', color: '#007bff', textAlign: 'center', marginBottom: 10 },
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', marginTop: 15, marginBottom: 5 },
-  list: { maxHeight: 150 },
-  trackItem: { padding: 10, backgroundColor: '#fff', marginBottom: 5, borderRadius: 5, borderWidth: 1, borderColor: '#ddd' },
-  trackName: { fontSize: 14 },
-  playlistInputRow: { flexDirection: 'row', marginBottom: 10 },
-  input: { flex: 1, borderWidth: 1, borderColor: '#ccc', borderRadius: 5, paddingHorizontal: 10, marginRight: 10, backgroundColor: '#fff' },
-  playlistCard: { padding: 8, backgroundColor: '#e9ecef', marginBottom: 5, borderRadius: 5 },
-  playlistTitle: { fontWeight: '600' },
+  container: { flex: 1, padding: 15, paddingTop: 45, backgroundColor: '#f8f9fa' },
+  title: { fontSize: 22, fontWeight: 'bold', textAlign: 'center', marginBottom: 10 },
+  buttonRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 10 },
+  playerBox: { backgroundColor: '#e9ecef', padding: 12, borderRadius: 8, marginBottom: 10, alignItems: 'center' },
+  nowPlayingTitle: { fontSize: 12, color: '#6c757d' },
+  nowPlayingName: { fontSize: 15, fontWeight: 'bold', marginVertical: 4 },
+  controlsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+  controlBtn: { padding: 8, marginHorizontal: 4, backgroundColor: '#fff', borderRadius: 5, borderWidth: 1, borderColor: '#ccc' },
+  controlBtnMain: { paddingVertical: 8, paddingHorizontal: 15, marginHorizontal: 4, backgroundColor: '#007bff', borderRadius: 5 },
+  controlText: { fontWeight: 'bold', color: '#000' },
+  sectionTitle: { fontSize: 15, fontWeight: 'bold', marginTop: 10, marginBottom: 4 },
+  list: { maxHeight: 120 },
+  trackItem: { flexDirection: 'row', alignItems: 'center', padding: 8, backgroundColor: '#fff', marginBottom: 4, borderRadius: 5, borderWidth: 1, borderColor: '#ddd' },
+  trackName: { fontSize: 13 },
+  playlistInputRow: { flexDirection: 'row', marginBottom: 6 },
+  input: { flex: 1, borderWidth: 1, borderColor: '#ccc', borderRadius: 5, paddingHorizontal: 8, marginRight: 8, backgroundColor: '#fff' },
+  playlistCard: { padding: 8, backgroundColor: '#fff', marginBottom: 4, borderRadius: 5, borderWidth: 1, borderColor: '#ddd' },
+  playlistTitle: { fontWeight: '600', fontSize: 13 },
   rankItem: { flexDirection: 'row', justifyContent: 'space-between', padding: 6, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  rankText: { flex: 1, fontSize: 13 },
-  timeText: { fontWeight: 'bold', color: '#28a745' },
+  rankText: { flex: 1, fontSize: 12 },
+  timeText: { fontWeight: 'bold', color: '#28a745', fontSize: 12 },
 });
