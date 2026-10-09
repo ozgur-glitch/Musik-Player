@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
 import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Slider from '@react-native-community/slider';
@@ -60,7 +61,7 @@ function formatListeningTime(seconds) {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('library'); // 'library' oder 'ranking'
+  const [activeTab, setActiveTab] = useState('library');
   const [tracks, setTracks] = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [stats, setStats] = useState({});
@@ -91,14 +92,22 @@ export default function App() {
   useEffect(() => {
     loadSavedData();
     setupAudioMode();
+    requestPermissions();
   }, []);
 
-  // Audio-Modus für Hintergrundwiedergabe konfigurieren (Punkte 2 & 3)
+  async function requestPermissions() {
+    try {
+      await MediaLibrary.requestPermissionsAsync();
+    } catch (e) {
+      console.log('Permission Error:', e);
+    }
+  }
+
   async function setupAudioMode() {
     try {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
-        staysActiveInBackground: true, // Läuft weiter bei Minimierung & Sperrbildschirm
+        staysActiveInBackground: true,
         playsInSilentModeIOS: true,
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
@@ -193,7 +202,6 @@ export default function App() {
     }
   }
 
-  // Rekursives Auslesen von Haupt- und Unterordnern (Punkt 5)
   async function scanDirectoryRecursive(directoryUri) {
     let mp3s = [];
     try {
@@ -208,7 +216,7 @@ export default function App() {
             const subMp3s = await scanDirectoryRecursive(uri);
             mp3s = mp3s.concat(subMp3s);
           } catch (err) {
-            // Kein Ordner oder Zugriffsfehler
+            // Zugriffsfehler / keine Unterordner
           }
         }
       }
@@ -443,7 +451,7 @@ export default function App() {
         </View>
       </View>
 
-      {/* Tab Navigation (Punkt 1) */}
+      {/* Tab Navigation */}
       <View style={[styles.tabBar, theme.nav]}>
         <TouchableOpacity
           style={[styles.tabItem, activeTab === 'library' && styles.activeTabItem]}
@@ -495,7 +503,6 @@ export default function App() {
         {/* TAB 1: BIBLIOTHEK */}
         {activeTab === 'library' && (
           <>
-            {/* Action Buttons */}
             <View style={styles.actionRow}>
               <TouchableOpacity style={styles.actionBtn} onPress={pickSingleTrack}>
                 <Text style={styles.actionBtnText}>+ DATEI</Text>
@@ -507,7 +514,6 @@ export default function App() {
 
             {loading && <ActivityIndicator size="small" color="#ffd700" style={{ marginVertical: 4 }} />}
 
-            {/* Playlists */}
             <Text style={[styles.sectionTitle, theme.subText]}>PLAYLISTS ({playlists.length})</Text>
             <View style={styles.playlistInputRow}>
               <TextInput
@@ -590,7 +596,6 @@ export default function App() {
               </View>
             ))}
 
-            {/* Song Bibliothek */}
             <Text style={[styles.sectionTitle, theme.subText]}>ALLE SONGS ({filteredTracks.length})</Text>
             {filteredTracks.map((item, index) => {
               const isSelected = !activePlaylistId && currentTrackIndex === index;
@@ -618,7 +623,7 @@ export default function App() {
           </>
         )}
 
-        {/* TAB 2: EIGENER RANGLISTEN-TAB (Punkt 1 & 4) */}
+        {/* TAB 2: RANGLISTE */}
         {activeTab === 'ranking' && (
           <View style={{ marginTop: 10 }}>
             <Text style={[styles.sectionTitle, theme.subText]}>🏆 RANGLISTE (MEISTGEHÖRTE TITEL)</Text>
@@ -704,7 +709,6 @@ export default function App() {
   );
 }
 
-// Dunkler Theme-Style
 const darkStyles = {
   bg: { backgroundColor: '#2d384e' },
   nav: { backgroundColor: '#1e2638' },
@@ -714,7 +718,6 @@ const darkStyles = {
   border: { borderBottomColor: 'rgba(255,255,255,0.05)' },
 };
 
-// Heller Theme-Style (Sichtbarkeit optimiert)
 const lightStyles = {
   bg: { backgroundColor: '#f0f4f8' },
   nav: { backgroundColor: '#ffffff' },
