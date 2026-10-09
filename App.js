@@ -5,7 +5,6 @@ import {
   View,
   TouchableOpacity,
   ActivityIndicator,
-  FlatList,
   TextInput,
   Alert,
   StatusBar,
@@ -22,7 +21,6 @@ const STORAGE_KEY_PLAYLISTS = '@music_player_playlists';
 const STORAGE_KEY_STATS = '@music_player_stats';
 const STORAGE_KEY_THEME = '@music_player_theme';
 
-// Hilfsfunktion: Teilt "Interpret - Titel.mp3" sauber auf
 function parseSongName(filename) {
   if (!filename) return { artist: 'Unbekannter Interpret', title: 'Unbekannter Titel' };
   const cleanName = filename.replace(/\.[^/.]+$/, '');
@@ -39,7 +37,6 @@ function parseSongName(filename) {
   };
 }
 
-// Zeitformatierung (Millisekunden zu MM:SS)
 function formatTime(millis) {
   if (!millis || isNaN(millis)) return '0:00';
   const totalSeconds = Math.floor(millis / 1000);
@@ -48,7 +45,6 @@ function formatTime(millis) {
   return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 }
 
-// Formatiert Sekunden in Sek, Min, Std (Punkt 4)
 function formatListeningTime(seconds) {
   if (!seconds || seconds <= 0) return '0 Sek.';
   const hrs = Math.floor(seconds / 3600);
@@ -64,6 +60,7 @@ function formatListeningTime(seconds) {
 }
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState('library'); // 'library' oder 'ranking'
   const [tracks, setTracks] = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [stats, setStats] = useState({});
@@ -72,11 +69,10 @@ export default function App() {
   const [sound, setSound] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTrackIndex, setCurrentTrackIndex] = useState(null);
-  const [activePlaylistId, setActivePlaylistId] = useState(null); // Modus: Bibliothek vs Playlist
+  const [activePlaylistId, setActivePlaylistId] = useState(null);
   const [playlistTrackIndex, setPlaylistTrackIndex] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // Suche & UI State
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [showDevInfo, setShowDevInfo] = useState(false);
@@ -85,7 +81,6 @@ export default function App() {
   const [editingPlaylistId, setEditingPlaylistId] = useState(null);
   const [editingPlaylistName, setEditingPlaylistName] = useState('');
 
-  // Position & Slider Status
   const [positionMillis, setPositionMillis] = useState(0);
   const [durationMillis, setDurationMillis] = useState(1);
   const [isSeeking, setIsSeeking] = useState(false);
@@ -95,7 +90,23 @@ export default function App() {
 
   useEffect(() => {
     loadSavedData();
+    setupAudioMode();
   }, []);
+
+  // Audio-Modus für Hintergrundwiedergabe konfigurieren (Punkte 2 & 3)
+  async function setupAudioMode() {
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        staysActiveInBackground: true, // Läuft weiter bei Minimierung & Sperrbildschirm
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+    } catch (e) {
+      console.log('Audio Mode Fehler:', e);
+    }
+  }
 
   async function loadSavedData() {
     try {
@@ -182,28 +193,27 @@ export default function App() {
     }
   }
 
-  // Rekursives Ordner-Scannen für Unterordner (Punkt 5)
+  // Rekursives Auslesen von Haupt- und Unterordnern (Punkt 5)
   async function scanDirectoryRecursive(directoryUri) {
     let mp3s = [];
     try {
       const files = await FileSystem.StorageAccessFramework.readDirectoryAsync(directoryUri);
       for (const uri of files) {
-        if (uri.endsWith('.mp3') || uri.includes('.mp3')) {
-          const decoded = decodeURIComponent(uri);
+        const decoded = decodeURIComponent(uri);
+        if (uri.endsWith('.mp3') || decoded.endsWith('.mp3') || uri.includes('.mp3')) {
           const name = decoded.substring(decoded.lastIndexOf('/') + 1);
           mp3s.push({ id: `${Date.now()}_${Math.random()}`, name, uri });
-        } else if (!uri.includes('.')) {
-          // Versuche Unterordner zu lesen
+        } else {
           try {
             const subMp3s = await scanDirectoryRecursive(uri);
             mp3s = mp3s.concat(subMp3s);
           } catch (err) {
-            // Ignoriere Dateien/Ordner ohne Zugriff
+            // Kein Ordner oder Zugriffsfehler
           }
         }
       }
     } catch (e) {
-      console.log('Subdir scan error:', e);
+      console.log('Fehler beim Ordner-Scan:', e);
     }
     return mp3s;
   }
@@ -222,6 +232,7 @@ export default function App() {
 
       saveTracks(updated);
       setLoading(false);
+      Alert.alert('Erfolg', `${filteredNew.length} MP3-Dateien (inkl. Unterordner) hinzugefügt.`);
     } catch (e) {
       console.log('Ordner-Scan Fehler:', e);
       setLoading(false);
@@ -229,7 +240,6 @@ export default function App() {
     }
   }
 
-  // Song abspielen aus der Bibliothek
   async function playTrackFromLibrary(index) {
     if (index < 0 || index >= tracks.length) return;
     setActivePlaylistId(null);
@@ -238,7 +248,6 @@ export default function App() {
     playAudio(tracks[index]);
   }
 
-  // Song abspielen aus einer Playlist (Punkt 1 & 2)
   async function playTrackFromPlaylist(playlistId, trackIndex) {
     const pl = playlists.find((p) => p.id === playlistId);
     if (!pl || !pl.tracks || trackIndex < 0 || trackIndex >= pl.tracks.length) return;
@@ -255,12 +264,7 @@ export default function App() {
       currentSongNameRef.current = track.name;
       lastPositionRef.current = 0;
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        staysActiveInBackground: false,
-      });
+      await setupAudioMode();
 
       if (sound) {
         await sound.unloadAsync();
@@ -296,7 +300,6 @@ export default function App() {
     setIsPlaying(false);
   }
 
-  // Playlist-isoliertes Vor/Zurück (Punkt 2)
   function playNextTrack() {
     if (activePlaylistId) {
       const pl = playlists.find((p) => p.id === activePlaylistId);
@@ -359,7 +362,6 @@ export default function App() {
     Alert.alert('Zu Playlist hinzufügen', `Wähle eine Playlist für "${track.name}":`, playlistOptions);
   }
 
-  // Playlist Umbenennen (Punkt 10)
   function savePlaylistName(playlistId) {
     if (!editingPlaylistName.trim()) return;
     const updated = playlists.map((p) => {
@@ -372,7 +374,6 @@ export default function App() {
     setEditingPlaylistId(null);
   }
 
-  // Song aus Playlist löschen (Punkt 9)
   function removeTrackFromPlaylist(playlistId, trackIndex) {
     const updated = playlists.map((p) => {
       if (p.id === playlistId) {
@@ -385,7 +386,6 @@ export default function App() {
     savePlaylists(updated);
   }
 
-  // Reihenfolge in Playlist ändern (Punkt 9)
   function moveTrackInPlaylist(playlistId, fromIndex, direction) {
     const toIndex = fromIndex + direction;
     const pl = playlists.find((p) => p.id === playlistId);
@@ -410,7 +410,6 @@ export default function App() {
     .filter((item) => item.seconds > 0)
     .sort((a, b) => b.seconds - a.seconds);
 
-  // Aktueller Track ermitteln
   let currentTrack = null;
   if (activePlaylistId) {
     const pl = playlists.find((p) => p.id === activePlaylistId);
@@ -422,8 +421,6 @@ export default function App() {
   }
 
   const currentParsed = currentTrack ? parseSongName(currentTrack.name) : null;
-
-  // Dynamische Theme Styles (Punkt 8)
   const theme = isDarkMode ? darkStyles : lightStyles;
 
   return (
@@ -446,7 +443,27 @@ export default function App() {
         </View>
       </View>
 
-      {/* Entwickler Info Modal (Punkt 7) */}
+      {/* Tab Navigation (Punkt 1) */}
+      <View style={[styles.tabBar, theme.nav]}>
+        <TouchableOpacity
+          style={[styles.tabItem, activeTab === 'library' && styles.activeTabItem]}
+          onPress={() => setActiveTab('library')}
+        >
+          <Text style={[styles.tabText, activeTab === 'library' ? styles.activeTabText : theme.subText]}>
+            🎵 Bibliothek
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tabItem, activeTab === 'ranking' && styles.activeTabItem]}
+          onPress={() => setActiveTab('ranking')}
+        >
+          <Text style={[styles.tabText, activeTab === 'ranking' ? styles.activeTabText : theme.subText]}>
+            🏆 Rangliste
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Entwickler Info */}
       {showDevInfo && (
         <View style={[styles.devBox, theme.card]}>
           <Text style={[styles.devTitle, theme.text]}>Entwickler-Information</Text>
@@ -455,13 +472,13 @@ export default function App() {
         </View>
       )}
 
-      {/* Suchleiste */}
+      {/* Suche */}
       {showSearch && (
         <View style={[styles.searchContainer, theme.card]}>
           <TextInput
             style={[styles.searchInput, theme.text]}
-            placeholder="Suchen nach Interpret oder Song..."
-            placeholderTextColor="#8a95a5"
+            placeholder="Suchen..."
+            placeholderTextColor={theme.subText.color}
             value={searchQuery}
             onChangeText={setSearchQuery}
             autoFocus
@@ -474,162 +491,168 @@ export default function App() {
         </View>
       )}
 
-      {/* Import Action Buttons */}
-      <View style={styles.actionRow}>
-        <TouchableOpacity style={styles.actionBtn} onPress={pickSingleTrack}>
-          <Text style={styles.actionBtnText}>+ DATEI</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn} onPress={pickFolder}>
-          <Text style={styles.actionBtnText}>+ ORDNER</Text>
-        </TouchableOpacity>
-      </View>
-
-      {loading && <ActivityIndicator size="small" color="#ffd700" style={{ marginVertical: 4 }} />}
-
       <ScrollView style={styles.mainScroll} keyboardShouldPersistTaps="handled">
-        {/* Playlists Bereich */}
-        <Text style={[styles.sectionTitle, theme.subText]}>PLAYLISTS ({playlists.length})</Text>
-        
-        {/* Playlist Erstellen Formular (Punkt 1 Gefixt) */}
-        <View style={styles.playlistInputRow}>
-          <TextInput
-            style={[styles.input, theme.card, theme.text]}
-            placeholder="Neue Playlist Name..."
-            placeholderTextColor="#8a95a5"
-            value={newPlaylistName}
-            onChangeText={setNewPlaylistName}
-          />
-          <TouchableOpacity style={styles.createBtn} onPress={createPlaylist}>
-            <Text style={styles.createBtnText}>Erstellen</Text>
-          </TouchableOpacity>
-        </View>
-
-        {playlists.map((pl) => (
-          <View key={pl.id} style={[styles.playlistBox, theme.card]}>
-            <View style={styles.playlistHeader}>
-              {editingPlaylistId === pl.id ? (
-                <View style={{ flexDirection: 'row', flex: 1, gap: 6 }}>
-                  <TextInput
-                    style={[styles.input, theme.text, { flex: 1, height: 32 }]}
-                    value={editingPlaylistName}
-                    onChangeText={setEditingPlaylistName}
-                  />
-                  <TouchableOpacity style={styles.miniSaveBtn} onPress={() => savePlaylistName(pl.id)}>
-                    <Text style={{ color: '#1e2638', fontWeight: 'bold', fontSize: 11 }}>OK</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <TouchableOpacity
-                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}
-                  onPress={() => setExpandedPlaylistId(expandedPlaylistId === pl.id ? null : pl.id)}
-                >
-                  <Text style={[styles.playlistNameText, theme.text]}>
-                    📜 {pl.name} ({pl.tracks ? pl.tracks.length : 0} Songs)
-                  </Text>
-                  <TouchableOpacity onPress={() => { setEditingPlaylistId(pl.id); setEditingPlaylistName(pl.name); }}>
-                    <Text style={{ fontSize: 12 }}>✏️</Text>
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity onPress={() => setExpandedPlaylistId(expandedPlaylistId === pl.id ? null : pl.id)}>
-                <Text style={{ color: '#8a95a5' }}>{expandedPlaylistId === pl.id ? '▲' : '▼'}</Text>
+        {/* TAB 1: BIBLIOTHEK */}
+        {activeTab === 'library' && (
+          <>
+            {/* Action Buttons */}
+            <View style={styles.actionRow}>
+              <TouchableOpacity style={styles.actionBtn} onPress={pickSingleTrack}>
+                <Text style={styles.actionBtnText}>+ DATEI</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionBtn} onPress={pickFolder}>
+                <Text style={styles.actionBtnText}>+ ORDNER</Text>
               </TouchableOpacity>
             </View>
 
-            {/* Aufgeklappte Playlist-Inhalte mit Editierfunktion (Punkt 9 & 10) */}
-            {expandedPlaylistId === pl.id && (
-              <View style={styles.playlistContent}>
-                {pl.tracks && pl.tracks.length > 0 ? (
-                  pl.tracks.map((t, idx) => {
-                    const parsed = parseSongName(t.name);
-                    return (
-                      <View key={idx} style={styles.playlistSubItem}>
-                        <TouchableOpacity style={{ flex: 1 }} onPress={() => playTrackFromPlaylist(pl.id, idx)}>
-                          <Text style={styles.playlistSubTitle} numberOfLines={1}>▶ {parsed.title}</Text>
-                          <Text style={styles.playlistSubArtist} numberOfLines={1}>{parsed.artist}</Text>
-                        </TouchableOpacity>
+            {loading && <ActivityIndicator size="small" color="#ffd700" style={{ marginVertical: 4 }} />}
 
-                        {/* Verschieben & Löschen Buttons */}
-                        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-                          <TouchableOpacity onPress={() => moveTrackInPlaylist(pl.id, idx, -1)}>
-                            <Text style={{ fontSize: 12, color: theme.text.color }}>▲</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => moveTrackInPlaylist(pl.id, idx, 1)}>
-                            <Text style={{ fontSize: 12, color: theme.text.color }}>▼</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => removeTrackFromPlaylist(pl.id, idx)}>
-                            <Text style={{ fontSize: 12, color: '#ff4d4d', marginLeft: 4 }}>❌</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    );
-                  })
-                ) : (
-                  <Text style={{ color: '#8a95a5', fontSize: 12, paddingVertical: 4 }}>
-                    Keine Songs in dieser Playlist
-                  </Text>
+            {/* Playlists */}
+            <Text style={[styles.sectionTitle, theme.subText]}>PLAYLISTS ({playlists.length})</Text>
+            <View style={styles.playlistInputRow}>
+              <TextInput
+                style={[styles.input, theme.card, theme.text]}
+                placeholder="Neue Playlist Name..."
+                placeholderTextColor={theme.subText.color}
+                value={newPlaylistName}
+                onChangeText={setNewPlaylistName}
+              />
+              <TouchableOpacity style={styles.createBtn} onPress={createPlaylist}>
+                <Text style={styles.createBtnText}>Erstellen</Text>
+              </TouchableOpacity>
+            </View>
+
+            {playlists.map((pl) => (
+              <View key={pl.id} style={[styles.playlistBox, theme.card]}>
+                <View style={styles.playlistHeader}>
+                  {editingPlaylistId === pl.id ? (
+                    <View style={{ flexDirection: 'row', flex: 1, gap: 6 }}>
+                      <TextInput
+                        style={[styles.input, theme.text, { flex: 1, height: 32 }]}
+                        value={editingPlaylistName}
+                        onChangeText={setEditingPlaylistName}
+                      />
+                      <TouchableOpacity style={styles.miniSaveBtn} onPress={() => savePlaylistName(pl.id)}>
+                        <Text style={{ color: '#1e2638', fontWeight: 'bold', fontSize: 11 }}>OK</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                      onPress={() => setExpandedPlaylistId(expandedPlaylistId === pl.id ? null : pl.id)}
+                    >
+                      <Text style={[styles.playlistNameText, theme.text]}>
+                        📜 {pl.name} ({pl.tracks ? pl.tracks.length : 0} Songs)
+                      </Text>
+                      <TouchableOpacity onPress={() => { setEditingPlaylistId(pl.id); setEditingPlaylistName(pl.name); }}>
+                        <Text style={{ fontSize: 12 }}>✏️</Text>
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity onPress={() => setExpandedPlaylistId(expandedPlaylistId === pl.id ? null : pl.id)}>
+                    <Text style={{ color: theme.subText.color }}>{expandedPlaylistId === pl.id ? '▲' : '▼'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {expandedPlaylistId === pl.id && (
+                  <View style={styles.playlistContent}>
+                    {pl.tracks && pl.tracks.length > 0 ? (
+                      pl.tracks.map((t, idx) => {
+                        const parsed = parseSongName(t.name);
+                        return (
+                          <View key={idx} style={styles.playlistSubItem}>
+                            <TouchableOpacity style={{ flex: 1 }} onPress={() => playTrackFromPlaylist(pl.id, idx)}>
+                              <Text style={styles.playlistSubTitle} numberOfLines={1}>▶ {parsed.title}</Text>
+                              <Text style={[styles.playlistSubArtist, theme.subText]} numberOfLines={1}>{parsed.artist}</Text>
+                            </TouchableOpacity>
+
+                            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                              <TouchableOpacity onPress={() => moveTrackInPlaylist(pl.id, idx, -1)}>
+                                <Text style={{ fontSize: 12, color: theme.text.color }}>▲</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={() => moveTrackInPlaylist(pl.id, idx, 1)}>
+                                <Text style={{ fontSize: 12, color: theme.text.color }}>▼</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={() => removeTrackFromPlaylist(pl.id, idx)}>
+                                <Text style={{ fontSize: 12, color: '#ff4d4d', marginLeft: 4 }}>❌</Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        );
+                      })
+                    ) : (
+                      <Text style={{ color: theme.subText.color, fontSize: 12, paddingVertical: 4 }}>
+                        Keine Songs in dieser Playlist
+                      </Text>
+                    )}
+                  </View>
                 )}
               </View>
-            )}
-          </View>
-        ))}
+            ))}
 
-        {/* Separate Ranglisten-Tabelle (Punkt 3 & 4) */}
-        <Text style={[styles.sectionTitle, theme.subText]}>🏆 RANGLISTE (HÖRZEIT)</Text>
-        <View style={[styles.tableBox, theme.card]}>
-          <View style={styles.tableHeader}>
-            <Text style={[styles.th, { width: 30 }, theme.subText]}>#</Text>
-            <Text style={[styles.th, { flex: 1 }, theme.subText]}>Titel / Interpret</Text>
-            <Text style={[styles.th, { width: 100, textAlign: 'right' }, theme.subText]}>Hörzeit</Text>
-          </View>
-          {sortedRanking.length === 0 ? (
-            <Text style={{ color: '#8a95a5', fontSize: 12, padding: 10, textAlign: 'center' }}>
-              Noch keine Daten vorhanden
-            </Text>
-          ) : (
-            sortedRanking.map((item, idx) => {
-              const parsed = parseSongName(item.name);
+            {/* Song Bibliothek */}
+            <Text style={[styles.sectionTitle, theme.subText]}>ALLE SONGS ({filteredTracks.length})</Text>
+            {filteredTracks.map((item, index) => {
+              const isSelected = !activePlaylistId && currentTrackIndex === index;
+              const { artist, title } = parseSongName(item.name);
+
               return (
-                <View key={idx} style={styles.tableRow}>
-                  <Text style={[styles.tdRank, { width: 30 }]}>{idx + 1}.</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.tdTitle, theme.text]} numberOfLines={1}>{parsed.title}</Text>
-                    <Text style={[styles.tdArtist, theme.subText]} numberOfLines={1}>{parsed.artist}</Text>
+                <View key={item.id || index} style={[styles.songRow, theme.border]}>
+                  <View style={[styles.coverBox, theme.card]}>
+                    <Text style={{ fontSize: 18 }}>🎵</Text>
                   </View>
-                  <Text style={[styles.tdTime, { width: 100 }]}>
-                    {formatListeningTime(item.seconds)}
-                  </Text>
+
+                  <TouchableOpacity style={{ flex: 1 }} onPress={() => playTrackFromLibrary(index)}>
+                    <Text style={[styles.songTitle, theme.text, isSelected && styles.activeSongTitle]} numberOfLines={1}>
+                      {title}
+                    </Text>
+                    <Text style={[styles.songArtist, theme.subText]} numberOfLines={1}>{artist}</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.moreBtn} onPress={() => addTrackToPlaylist(item)}>
+                    <Text style={styles.moreBtnText}>+</Text>
+                  </TouchableOpacity>
                 </View>
               );
-            })
-          )}
-        </View>
+            })}
+          </>
+        )}
 
-        {/* Alle Songs / Bibliothek */}
-        <Text style={[styles.sectionTitle, theme.subText]}>ALLE SONGS ({filteredTracks.length})</Text>
-        {filteredTracks.map((item, index) => {
-          const isSelected = !activePlaylistId && currentTrackIndex === index;
-          const { artist, title } = parseSongName(item.name);
-
-          return (
-            <View key={item.id || index} style={[styles.songRow, theme.border]}>
-              <View style={[styles.coverBox, theme.card]}>
-                <Text style={{ fontSize: 18 }}>🎵</Text>
+        {/* TAB 2: EIGENER RANGLISTEN-TAB (Punkt 1 & 4) */}
+        {activeTab === 'ranking' && (
+          <View style={{ marginTop: 10 }}>
+            <Text style={[styles.sectionTitle, theme.subText]}>🏆 RANGLISTE (MEISTGEHÖRTE TITEL)</Text>
+            <View style={[styles.tableBox, theme.card]}>
+              <View style={styles.tableHeader}>
+                <Text style={[styles.th, { width: 30 }, theme.subText]}>#</Text>
+                <Text style={[styles.th, { flex: 1 }, theme.subText]}>Titel & Interpret</Text>
+                <Text style={[styles.th, { width: 110, textAlign: 'right' }, theme.subText]}>Gesamthörzeit</Text>
               </View>
 
-              <TouchableOpacity style={{ flex: 1 }} onPress={() => playTrackFromLibrary(index)}>
-                <Text style={[styles.songTitle, theme.text, isSelected && styles.activeSongTitle]} numberOfLines={1}>
-                  {title}
+              {sortedRanking.length === 0 ? (
+                <Text style={{ color: theme.subText.color, fontSize: 13, padding: 15, textAlign: 'center' }}>
+                  Noch keine Wiedergabedaten vorhanden.
                 </Text>
-                <Text style={[styles.songArtist, theme.subText]} numberOfLines={1}>{artist}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.moreBtn} onPress={() => addTrackToPlaylist(item)}>
-                <Text style={styles.moreBtnText}>+</Text>
-              </TouchableOpacity>
+              ) : (
+                sortedRanking.map((item, idx) => {
+                  const parsed = parseSongName(item.name);
+                  return (
+                    <View key={idx} style={styles.tableRow}>
+                      <Text style={[styles.tdRank, { width: 30 }]}>{idx + 1}.</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.tdTitle, theme.text]} numberOfLines={1}>{parsed.title}</Text>
+                        <Text style={[styles.tdArtist, theme.subText]} numberOfLines={1}>{parsed.artist}</Text>
+                      </View>
+                      <Text style={[styles.tdTime, { width: 110 }]}>
+                        {formatListeningTime(item.seconds)}
+                      </Text>
+                    </View>
+                  );
+                })
+              )}
             </View>
-          );
-        })}
+          </View>
+        )}
       </ScrollView>
 
       {/* Unterer Player */}
@@ -638,19 +661,19 @@ export default function App() {
           <Text style={[styles.nowPlayingTitle, theme.text]} numberOfLines={1}>
             {currentParsed ? currentParsed.title : currentTrack.name}
           </Text>
-          <Text style={styles.nowPlayingArtist} numberOfLines={1}>
+          <Text style={[styles.nowPlayingArtist, theme.subText]} numberOfLines={1}>
             {currentParsed ? currentParsed.artist : ''}
           </Text>
 
           <View style={styles.progressContainer}>
-            <Text style={styles.timeText}>{formatTime(positionMillis)}</Text>
+            <Text style={[styles.timeText, theme.subText]}>{formatTime(positionMillis)}</Text>
             <Slider
               style={styles.slider}
               minimumValue={0}
               maximumValue={durationMillis}
               value={positionMillis}
               minimumTrackTintColor="#ffd700"
-              maximumTrackTintColor="rgba(255,255,255,0.2)"
+              maximumTrackTintColor={isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}
               thumbTintColor="#ffd700"
               onValueChange={(val) => {
                 setIsSeeking(true);
@@ -658,7 +681,7 @@ export default function App() {
               }}
               onSlidingComplete={onSlidingComplete}
             />
-            <Text style={styles.timeText}>{formatTime(durationMillis)}</Text>
+            <Text style={[styles.timeText, theme.subText]}>{formatTime(durationMillis)}</Text>
           </View>
 
           <View style={styles.controls}>
@@ -681,6 +704,7 @@ export default function App() {
   );
 }
 
+// Dunkler Theme-Style
 const darkStyles = {
   bg: { backgroundColor: '#2d384e' },
   nav: { backgroundColor: '#1e2638' },
@@ -690,19 +714,26 @@ const darkStyles = {
   border: { borderBottomColor: 'rgba(255,255,255,0.05)' },
 };
 
+// Heller Theme-Style (Sichtbarkeit optimiert)
 const lightStyles = {
   bg: { backgroundColor: '#f0f4f8' },
   nav: { backgroundColor: '#ffffff' },
   card: { backgroundColor: '#ffffff' },
   text: { color: '#1a202c' },
-  subText: { color: '#718096' },
-  border: { borderBottomColor: 'rgba(0,0,0,0.05)' },
+  subText: { color: '#4a5568' },
+  border: { borderBottomColor: 'rgba(0,0,0,0.08)' },
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1, paddingTop: 35 },
   navBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
   navTitle: { fontSize: 20, fontWeight: 'bold' },
+
+  tabBar: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
+  tabItem: { flex: 1, paddingVertical: 10, alignItems: 'center' },
+  activeTabItem: { borderBottomWidth: 3, borderBottomColor: '#ffd700' },
+  tabText: { fontSize: 13, fontWeight: 'bold' },
+  activeTabText: { color: '#ffd700' },
 
   devBox: { marginHorizontal: 16, marginTop: 8, padding: 10, borderRadius: 8 },
   devTitle: { fontWeight: 'bold', fontSize: 13, marginBottom: 4 },
@@ -711,7 +742,7 @@ const styles = StyleSheet.create({
   searchContainer: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginTop: 8, borderRadius: 8, paddingHorizontal: 10 },
   searchInput: { flex: 1, height: 38, fontSize: 14 },
 
-  actionRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginTop: 10, marginBottom: 10 },
+  actionRow: { flexDirection: 'row', gap: 10, marginTop: 10, marginBottom: 10 },
   actionBtn: { flex: 1, backgroundColor: '#ffd700', paddingVertical: 8, borderRadius: 6, alignItems: 'center' },
   actionBtnText: { color: '#1e2638', fontSize: 12, fontWeight: 'bold' },
 
@@ -727,17 +758,16 @@ const styles = StyleSheet.create({
   playlistHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   playlistNameText: { fontSize: 14, fontWeight: '500' },
   playlistContent: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' },
-  playlistSubItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.03)' },
+  playlistSubItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.03)' },
   playlistSubTitle: { color: '#ffd700', fontSize: 13, fontWeight: 'bold' },
-  playlistSubArtist: { color: '#8a95a5', fontSize: 11, marginLeft: 14 },
+  playlistSubArtist: { fontSize: 11, marginLeft: 14 },
   miniSaveBtn: { backgroundColor: '#ffd700', paddingHorizontal: 8, justifyContent: 'center', borderRadius: 4 },
 
-  // Table Styles (Punkt 3)
-  tableBox: { borderRadius: 6, padding: 10, marginBottom: 10 },
-  tableHeader: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)', paddingBottom: 6, marginBottom: 6 },
+  tableBox: { borderRadius: 8, padding: 12, marginBottom: 15 },
+  tableHeader: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.1)', paddingBottom: 8, marginBottom: 6 },
   th: { fontSize: 11, fontWeight: 'bold' },
-  tableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.03)' },
-  tdRank: { color: '#ffd700', fontWeight: 'bold', fontSize: 12 },
+  tableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.03)' },
+  tdRank: { color: '#ffd700', fontWeight: 'bold', fontSize: 13 },
   tdTitle: { fontSize: 13, fontWeight: '500' },
   tdArtist: { fontSize: 11 },
   tdTime: { color: '#ffd700', fontSize: 11, fontWeight: 'bold', textAlign: 'right' },
@@ -750,12 +780,12 @@ const styles = StyleSheet.create({
   moreBtn: { paddingHorizontal: 12, paddingVertical: 4, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 4 },
   moreBtnText: { color: '#ffd700', fontSize: 16, fontWeight: 'bold' },
 
-  bottomPlayer: { paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' },
+  bottomPlayer: { paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.1)' },
   nowPlayingTitle: { fontSize: 14, fontWeight: 'bold', textAlign: 'center' },
-  nowPlayingArtist: { color: '#8a95a5', fontSize: 12, textAlign: 'center', marginBottom: 4 },
+  nowPlayingArtist: { fontSize: 12, textAlign: 'center', marginBottom: 4 },
   progressContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   slider: { flex: 1, height: 20, marginHorizontal: 6 },
-  timeText: { color: '#8a95a5', fontSize: 10, width: 32, textAlign: 'center' },
+  timeText: { fontSize: 10, width: 32, textAlign: 'center' },
   controls: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 20 },
   cBtn: { padding: 6 },
   cText: { fontSize: 18 },
