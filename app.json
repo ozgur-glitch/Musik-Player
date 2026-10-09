@@ -2,7 +2,7 @@
   "expo": {
     "name": "Musik Player",
     "slug": "musik-player",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./icon.png",
     "userInterfaceStyle": "dark",
@@ -26,13 +26,12 @@
       "package": "com.oc2003.musikplayer",
       "permissions": [
         "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "WAKE_LOCK",
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "MEDIA_CONTENT_CONTROL"
       ]
-    },
-    "web": {
-      "favicon": "./icon.png"
     },
     "owner": "ozce",
     "extra": {
