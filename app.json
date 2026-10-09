@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "musik-player",
+    "name": "Musik Player",
     "slug": "musik-player",
     "version": "1.0.3",
     "orientation": "portrait",
@@ -23,7 +23,13 @@
         "foregroundImage": "./icon.png",
         "backgroundColor": "#121212"
       },
-      "package": "com.oc2003.musikplayer"
+      "package": "com.oc2003.musikplayer",
+      "permissions": [
+        "FOREGROUND_SERVICE",
+        "WAKE_LOCK",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./icon.png"
