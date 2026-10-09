@@ -29,25 +29,15 @@ export default function App() {
   const [currentTrackIndex, setCurrentTrackIndex] = useState(null);
   const [loading, setLoading] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
+  const [expandedPlaylistId, setExpandedPlaylistId] = useState(null);
 
   const lastPositionRef = useRef(0);
   const currentSongNameRef = useRef('');
 
+  // 1. Beim App-Start gespeicherte Daten laden
   useEffect(() => {
     loadSavedData();
   }, []);
-
-  useEffect(() => {
-    if (tracks.length > 0) AsyncStorage.setItem(STORAGE_KEY_TRACKS, JSON.stringify(tracks));
-  }, [tracks]);
-
-  useEffect(() => {
-    AsyncStorage.setItem(STORAGE_KEY_PLAYLISTS, JSON.stringify(playlists));
-  }, [playlists]);
-
-  useEffect(() => {
-    AsyncStorage.setItem(STORAGE_KEY_STATS, JSON.stringify(stats));
-  }, [stats]);
 
   async function loadSavedData() {
     try {
@@ -63,19 +53,39 @@ export default function App() {
     }
   }
 
+  // Hilfsfunktionen zum dauerhaften Speichern
+  async function saveTracks(newTracks) {
+    setTracks(newTracks);
+    await AsyncStorage.setItem(STORAGE_KEY_TRACKS, JSON.stringify(newTracks));
+  }
+
+  async function savePlaylists(newPlaylists) {
+    setPlaylists(newPlaylists);
+    await AsyncStorage.setItem(STORAGE_KEY_PLAYLISTS, JSON.stringify(newPlaylists));
+  }
+
+  async function saveStats(newStats) {
+    setStats(newStats);
+    await AsyncStorage.setItem(STORAGE_KEY_STATS, JSON.stringify(newStats));
+  }
+
+  // Ranglisten-Zeitmessung
   function handlePlaybackStatusUpdate(status) {
     if (status.isLoaded && status.isPlaying) {
       if (lastPositionRef.current > 0 && status.positionMillis > lastPositionRef.current) {
         const deltaSeconds = (status.positionMillis - lastPositionRef.current) / 1000;
         if (deltaSeconds > 0 && deltaSeconds < 5) {
-          setStats((prev) => {
-            const songName = currentSongNameRef.current;
-            if (!songName) return prev;
-            return {
-              ...prev,
-              [songName]: (prev[songName] || 0) + deltaSeconds,
-            };
-          });
+          const songName = currentSongNameRef.current;
+          if (songName) {
+            setStats((prev) => {
+              const updated = {
+                ...prev,
+                [songName]: (prev[songName] || 0) + deltaSeconds,
+              };
+              AsyncStorage.setItem(STORAGE_KEY_STATS, JSON.stringify(updated));
+              return updated;
+            });
+          }
         }
       }
       lastPositionRef.current = status.positionMillis;
@@ -84,6 +94,7 @@ export default function App() {
     }
   }
 
+  // Einzeldatei hinzufügen
   async function pickSingleTrack() {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -95,16 +106,17 @@ export default function App() {
         const file = result.assets[0];
         const newTrack = { id: Date.now().toString(), name: file.name, uri: file.uri };
 
-        setTracks((prev) => {
-          if (prev.some((t) => t.name === file.name)) return prev;
-          return [...prev, newTrack];
-        });
+        if (!tracks.some((t) => t.name === file.name)) {
+          const updated = [...tracks, newTrack];
+          saveTracks(updated);
+        }
       }
     } catch (e) {
-      console.log('Fehler Dateiauswahl:', e);
+      console.log('Fehler bei Dateiauswahl:', e);
     }
   }
 
+  // Ordner scannen
   async function pickFolder() {
     try {
       const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
@@ -120,20 +132,20 @@ export default function App() {
         return { id: `${Date.now()}_${index}`, name, uri };
       });
 
-      setTracks((prev) => {
-        const existingNames = new Set(prev.map((t) => t.name));
-        const filteredNew = newTracks.filter((t) => !existingNames.has(t.name));
-        return [...prev, ...filteredNew];
-      });
+      const existingNames = new Set(tracks.map((t) => t.name));
+      const filteredNew = newTracks.filter((t) => !existingNames.has(t.name));
+      const updated = [...tracks, ...filteredNew];
 
+      saveTracks(updated);
       setLoading(false);
     } catch (e) {
       console.log('Ordner-Scan Fehler:', e);
       setLoading(false);
-      Alert.alert('Hinweis', 'Ordner-Auswahl wird auf diesem Gerät nicht unterstützt.');
+      Alert.alert('Hinweis', 'Ordner-Auswahl auf diesem Gerät nicht verfügbar.');
     }
   }
 
+  // Abspielen
   async function playTrackByIndex(index) {
     if (index < 0 || index >= tracks.length) return;
 
@@ -170,6 +182,7 @@ export default function App() {
     }
   }
 
+  // Player-Steuerung
   async function togglePlayPause() {
     if (!sound) return;
     if (isPlaying) {
@@ -199,39 +212,42 @@ export default function App() {
     }
   }
 
+  // Playlist erstellen
   function createPlaylist() {
     if (!newPlaylistName.trim()) return;
     const newPl = { id: Date.now().toString(), name: newPlaylistName.trim(), tracks: [] };
-    setPlaylists((prev) => [...prev, newPl]);
+    const updated = [...playlists, newPl];
+    savePlaylists(updated);
     setNewPlaylistName('');
   }
 
+  // Song zu Playlist hinzufügen
   function addTrackToPlaylist(track) {
     if (playlists.length === 0) {
-      Alert.alert('CyberPlayer Alert', 'Erstelle zuerst eine Playlist!');
+      Alert.alert('Hinweis', 'Erstelle zuerst eine Playlist!');
       return;
     }
 
     const playlistOptions = playlists.map((pl) => ({
       text: pl.name,
       onPress: () => {
-        setPlaylists((prevPlaylists) =>
-          prevPlaylists.map((p) => {
-            if (p.id === pl.id) {
-              const alreadyExists = p.tracks.some((t) => t.id === track.id);
-              if (alreadyExists) return p;
-              return { ...p, tracks: [...p.tracks, track] };
-            }
-            return p;
-          })
-        );
+        const updated = playlists.map((p) => {
+          if (p.id === pl.id) {
+            const alreadyExists = p.tracks.some((t) => t.id === track.id);
+            if (alreadyExists) return p;
+            return { ...p, tracks: [...p.tracks, track] };
+          }
+          return p;
+        });
+        savePlaylists(updated);
       },
     }));
 
     playlistOptions.push({ text: 'Abbrechen', style: 'cancel' });
-    Alert.alert('Playlist Hinzufügen', `Titel "${track.name}" hinzufügen zu:`, playlistOptions);
+    Alert.alert('Zu Playlist hinzufügen', `Wähle eine Playlist für "${track.name}":`, playlistOptions);
   }
 
+  // Rangliste Daten
   const sortedRanking = Object.keys(stats)
     .map((name) => ({ name, seconds: Math.floor(stats[name]) }))
     .filter((item) => item.seconds > 0)
@@ -241,172 +257,197 @@ export default function App() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0b0e14" />
+      <StatusBar barStyle="light-content" backgroundColor="#1e2638" />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.appTitle}>NEXUS<Text style={styles.titleAccent}>AUDIO</Text></Text>
-        <View style={styles.statusBadge}>
-          <Text style={styles.statusText}>{isPlaying ? 'LIVE AUDIO' : 'STANDBY'}</Text>
+      {/* Navigation Header */}
+      <View style={styles.navBar}>
+        <Text style={styles.navBack}>←</Text>
+        <Text style={styles.navTitle}>Songs</Text>
+        <View style={styles.navIcons}>
+          <Text style={styles.navIcon}>🔍</Text>
+          <Text style={styles.navIcon}>⋮</Text>
         </View>
       </View>
 
-      {/* Futuristic Player Display */}
-      <View style={styles.playerCard}>
-        <View style={styles.visualizerContainer}>
-          <View style={[styles.bar, isPlaying && styles.barActive1]} />
-          <View style={[styles.bar, isPlaying && styles.barActive2]} />
-          <View style={[styles.bar, isPlaying && styles.barActive3]} />
-          <View style={[styles.bar, isPlaying && styles.barActive2]} />
-          <View style={[styles.bar, isPlaying && styles.barActive1]} />
-        </View>
-
-        <Text style={styles.nowPlayingLabel}>AKTUELLES AUDIO-SIGNAL</Text>
-        <Text style={styles.trackTitle} numberOfLines={1}>
-          {currentTrack ? currentTrack.name : 'Kein Titel geladen'}
-        </Text>
-
-        {/* Control Cluster */}
-        <View style={styles.controlCluster}>
-          <TouchableOpacity style={styles.iconBtn} onPress={playPreviousTrack}>
-            <Text style={styles.iconText}>⏮</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.mainPlayBtn} onPress={togglePlayPause}>
-            <Text style={styles.mainPlayText}>{isPlaying ? '⏸' : '▶'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={stopAudio}>
-            <Text style={styles.iconText}>⏹</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={playNextTrack}>
-            <Text style={styles.iconText}>⏭</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Import Action Bar */}
-      <View style={styles.importRow}>
-        <TouchableOpacity style={styles.cyanBtn} onPress={pickSingleTrack}>
-          <Text style={styles.btnText}>+ DATEI LADEN</Text>
+      {/* Buttons für Import */}
+      <View style={styles.actionRow}>
+        <TouchableOpacity style={styles.actionBtn} onPress={pickSingleTrack}>
+          <Text style={styles.actionBtnText}>+ DATEI</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.purpleBtn} onPress={pickFolder}>
-          <Text style={styles.btnText}>+ ORDNER SCAN</Text>
+        <TouchableOpacity style={styles.actionBtn} onPress={pickFolder}>
+          <Text style={styles.actionBtnText}>+ ORDNER</Text>
         </TouchableOpacity>
       </View>
 
-      {loading && <ActivityIndicator size="large" color="#00f2fe" style={{ marginVertical: 8 }} />}
+      {loading && <ActivityIndicator size="small" color="#ffd700" style={{ marginVertical: 4 }} />}
 
-      {/* Section: Audio Library */}
-      <Text style={styles.sectionHeader}>// BIBLIOTHEK ({tracks.length})</Text>
+      {/* Musikbibliothek */}
       <FlatList
-        style={styles.scrollList}
+        style={styles.mainList}
         data={tracks}
         keyExtractor={(item) => item.id}
-        renderItem={({ item, index }) => (
-          <View style={[styles.listItem, currentTrackIndex === index && styles.activeListItem]}>
-            <TouchableOpacity style={{ flex: 1 }} onPress={() => playTrackByIndex(index)}>
-              <Text style={styles.itemText} numberOfLines={1}>{item.name}</Text>
+        ListHeaderComponent={() => (
+          <>
+            {/* Playlists Bereich */}
+            <Text style={styles.sectionTitle}>PLAYLISTS ({playlists.length})</Text>
+            <View style={styles.playlistInputRow}>
+              <TextInput
+                style={styles.input}
+                placeholder="Neue Playlist Name..."
+                placeholderTextColor="#8a95a5"
+                value={newPlaylistName}
+                onChangeText={setNewPlaylistName}
+              />
+              <TouchableOpacity style={styles.createBtn} onPress={createPlaylist}>
+                <Text style={styles.createBtnText}>Erstellen</Text>
+              </TouchableOpacity>
+            </View>
+
+            {playlists.map((pl) => (
+              <View key={pl.id} style={styles.playlistBox}>
+                <TouchableOpacity
+                  style={styles.playlistHeader}
+                  onPress={() => setExpandedPlaylistId(expandedPlaylistId === pl.id ? null : pl.id)}
+                >
+                  <Text style={styles.playlistNameText}>
+                    📜 {pl.name} ({pl.tracks ? pl.tracks.length : 0} Songs)
+                  </Text>
+                  <Text style={{ color: '#8a95a5' }}>{expandedPlaylistId === pl.id ? '▲' : '▼'}</Text>
+                </TouchableOpacity>
+
+                {/* Aufgeklappte Playlist-Inhalte */}
+                {expandedPlaylistId === pl.id && (
+                  <View style={styles.playlistContent}>
+                    {pl.tracks && pl.tracks.length > 0 ? (
+                      pl.tracks.map((t, i) => (
+                        <View key={i} style={styles.playlistSubItem}>
+                          <Text style={styles.playlistSubText} numberOfLines={1}>• {t.name}</Text>
+                        </View>
+                      ))
+                    ) : (
+                      <Text style={{ color: '#8a95a5', fontSize: 12, paddingVertical: 4 }}>
+                        Keine Songs in dieser Playlist
+                      </Text>
+                    )}
+                  </View>
+                )}
+              </View>
+            ))}
+
+            {/* Rangliste Bereich */}
+            <Text style={styles.sectionTitle}>🏆 RANGLISTE (HÖRZEIT)</Text>
+            {sortedRanking.length === 0 ? (
+              <Text style={{ color: '#8a95a5', fontSize: 13, marginBottom: 15 }}>Noch keine Daten vorhanden</Text>
+            ) : (
+              sortedRanking.map((item, idx) => (
+                <View key={idx} style={styles.rankRow}>
+                  <Text style={styles.rankNum}>{idx + 1}.</Text>
+                  <Text style={styles.rankName} numberOfLines={1}>{item.name}</Text>
+                  <Text style={styles.rankTime}>{item.seconds} Sek.</Text>
+                </View>
+              ))
+            )}
+
+            <Text style={styles.sectionTitle}>ALLE SONGS ({tracks.length})</Text>
+          </>
+        )}
+        renderItem={({ item, index }) => {
+          const isSelected = currentTrackIndex === index;
+          return (
+            <View style={styles.songRow}>
+              {/* Cover Icon */}
+              <View style={styles.coverBox}>
+                <Text style={{ fontSize: 18 }}>🎵</Text>
+              </View>
+
+              {/* Song Titel */}
+              <TouchableOpacity style={{ flex: 1 }} onPress={() => playTrackByIndex(index)}>
+                <Text style={[styles.songTitle, isSelected && styles.activeSongTitle]} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text style={styles.songArtist}>MP3 Audio</Text>
+              </TouchableOpacity>
+
+              {/* Dreipunkte Menü / Playlist Button */}
+              <TouchableOpacity style={styles.moreBtn} onPress={() => addTrackToPlaylist(item)}>
+                <Text style={styles.moreBtnText}>⋮</Text>
+              </TouchableOpacity>
+            </View>
+          );
+        }}
+      />
+
+      {/* Untere Player-Steuerung */}
+      {currentTrack && (
+        <View style={styles.bottomPlayer}>
+          <Text style={styles.nowPlayingText} numberOfLines={1}>
+            ▶ {currentTrack.name}
+          </Text>
+          <View style={styles.controls}>
+            <TouchableOpacity onPress={playPreviousTrack} style={styles.cBtn}>
+              <Text style={styles.cText}>⏮</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.miniBtn} onPress={() => addTrackToPlaylist(item)}>
-              <Text style={styles.miniBtnText}>+ LISTE</Text>
+            <TouchableOpacity onPress={togglePlayPause} style={styles.cBtnMain}>
+              <Text style={styles.cTextMain}>{isPlaying ? '⏸' : '▶'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={stopAudio} style={styles.cBtn}>
+              <Text style={styles.cText}>⏹</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={playNextTrack} style={styles.cBtn}>
+              <Text style={styles.cText}>⏭</Text>
             </TouchableOpacity>
           </View>
-        )}
-      />
-
-      {/* Section: Playlists */}
-      <Text style={styles.sectionHeader}>// PLAYLISTS ({playlists.length})</Text>
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.darkInput}
-          placeholder="Neue Playlist Benennen..."
-          placeholderTextColor="#5a6578"
-          value={newPlaylistName}
-          onChangeText={setNewPlaylistName}
-        />
-        <TouchableOpacity style={styles.addBtn} onPress={createPlaylist}>
-          <Text style={styles.addBtnText}>+</Text>
-        </TouchableOpacity>
-      </View>
-
-      <FlatList
-        style={styles.scrollList}
-        data={playlists}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.playlistCard}>
-            <Text style={styles.playlistName}>{item.name}</Text>
-            <Text style={styles.playlistCount}>{item.tracks ? item.tracks.length : 0} TITEL</Text>
-          </View>
-        )}
-      />
-
-      {/* Section: Rank Stats */}
-      <Text style={styles.sectionHeader}>// HÖRZEIT-RANGLISTE</Text>
-      <FlatList
-        style={styles.scrollList}
-        data={sortedRanking}
-        keyExtractor={(item) => item.name}
-        renderItem={({ item, index }) => (
-          <View style={styles.rankCard}>
-            <Text style={styles.rankNum}>#{index + 1}</Text>
-            <Text style={styles.rankName} numberOfLines={1}>{item.name}</Text>
-            <Text style={styles.rankTime}>{item.seconds}s</Text>
-          </View>
-        )}
-      />
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0b0e14', paddingHorizontal: 16, paddingTop: 40 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  appTitle: { fontSize: 22, fontWeight: '900', color: '#ffffff', letterSpacing: 1.5 },
-  titleAccent: { color: '#00f2fe' },
-  statusBadge: { backgroundColor: 'rgba(0,242,254,0.1)', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 4, borderWidth: 1, borderColor: '#00f2fe' },
-  statusText: { fontSize: 9, fontWeight: 'bold', color: '#00f2fe', letterSpacing: 1 },
-  
-  // Futuristic Player Card
-  playerCard: { backgroundColor: '#161b22', borderRadius: 16, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: '#232d3d', marginBottom: 12 },
-  visualizerContainer: { flexDirection: 'row', alignItems: 'flex-end', height: 20, marginBottom: 10, gap: 4 },
-  bar: { width: 4, height: 6, backgroundColor: '#232d3d', borderRadius: 2 },
-  barActive1: { height: 16, backgroundColor: '#00f2fe' },
-  barActive2: { height: 20, backgroundColor: '#4facfe' },
-  barActive3: { height: 12, backgroundColor: '#00f2fe' },
-  nowPlayingLabel: { fontSize: 10, color: '#5a6578', letterSpacing: 1, fontWeight: 'bold' },
-  trackTitle: { fontSize: 16, fontWeight: 'bold', color: '#fff', marginVertical: 6 },
-  
-  controlCluster: { flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 12 },
-  iconBtn: { width: 42, height: 42, backgroundColor: '#1f2633', borderRadius: 21, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#2d3748' },
-  iconText: { color: '#fff', fontSize: 16 },
-  mainPlayBtn: { width: 56, height: 56, backgroundColor: '#00f2fe', borderRadius: 28, justifyContent: 'center', alignItems: 'center' },
-  mainPlayText: { color: '#0b0e14', fontSize: 22, fontWeight: 'bold' },
+  container: { flex: 1, backgroundColor: '#2d384e', paddingTop: 35 },
+  navBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
+  navBack: { color: '#ffffff', fontSize: 22 },
+  navTitle: { color: '#ffffff', fontSize: 22, fontWeight: '500', flex: 1, marginLeft: 15 },
+  navIcons: { flexDirection: 'row', gap: 15 },
+  navIcon: { color: '#ffffff', fontSize: 20 },
 
-  importRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
-  cyanBtn: { flex: 1, backgroundColor: 'rgba(0,242,254,0.15)', borderWidth: 1, borderColor: '#00f2fe', paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
-  purpleBtn: { flex: 1, backgroundColor: 'rgba(121,40,202,0.15)', borderWidth: 1, borderColor: '#7928ca', paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
-  btnText: { color: '#fff', fontSize: 11, fontWeight: 'bold', letterSpacing: 0.5 },
+  actionRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginBottom: 10 },
+  actionBtn: { flex: 1, backgroundColor: 'rgba(255,255,255,0.12)', paddingVertical: 8, borderRadius: 6, alignItems: 'center' },
+  actionBtnText: { color: '#ffffff', fontSize: 12, fontWeight: 'bold' },
 
-  sectionHeader: { fontSize: 11, fontWeight: 'bold', color: '#5a6578', letterSpacing: 1, marginTop: 8, marginBottom: 6 },
-  scrollList: { maxHeight: 110 },
-  
-  listItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#161b22', padding: 10, borderRadius: 8, marginBottom: 6, borderWidth: 1, borderColor: '#1f2633' },
-  activeListItem: { borderColor: '#00f2fe', backgroundColor: 'rgba(0,242,254,0.05)' },
-  itemText: { color: '#e2e8f0', fontSize: 13, fontWeight: '500' },
-  miniBtn: { backgroundColor: '#232d3d', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
-  miniBtnText: { color: '#00f2fe', fontSize: 10, fontWeight: 'bold' },
+  mainList: { flex: 1, paddingHorizontal: 16 },
+  sectionTitle: { color: '#8a95a5', fontSize: 12, fontWeight: 'bold', marginTop: 15, marginBottom: 8, letterSpacing: 1 },
 
-  inputContainer: { flexDirection: 'row', gap: 8, marginBottom: 6 },
-  darkInput: { flex: 1, backgroundColor: '#161b22', borderWidth: 1, borderColor: '#232d3d', borderRadius: 8, paddingHorizontal: 12, color: '#fff', fontSize: 13 },
-  addBtn: { width: 40, height: 40, backgroundColor: '#00f2fe', borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
-  addBtnText: { color: '#0b0e14', fontSize: 20, fontWeight: 'bold' },
+  songRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
+  coverBox: { width: 48, height: 48, backgroundColor: '#1e2638', borderRadius: 4, justifyContent: 'center', alignItems: 'center', marginRight: 14 },
+  songTitle: { color: '#ffffff', fontSize: 16, fontWeight: '400', marginBottom: 3 },
+  activeSongTitle: { color: '#ffd700', fontWeight: 'bold' },
+  songArtist: { color: '#8a95a5', fontSize: 13 },
+  moreBtn: { padding: 10 },
+  moreBtnText: { color: '#ffffff', fontSize: 20 },
 
-  playlistCard: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#161b22', padding: 10, borderRadius: 8, marginBottom: 6, borderWidth: 1, borderColor: '#1f2633' },
-  playlistName: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  playlistCount: { color: '#00f2fe', fontSize: 11, fontWeight: 'bold' },
+  playlistInputRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  input: { flex: 1, backgroundColor: '#1e2638', borderRadius: 6, paddingHorizontal: 12, color: '#ffffff', fontSize: 13 },
+  createBtn: { backgroundColor: '#ffd700', paddingHorizontal: 14, justifyContent: 'center', borderRadius: 6 },
+  createBtnText: { color: '#1e2638', fontWeight: 'bold', fontSize: 13 },
 
-  rankCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#161b22', padding: 8, borderRadius: 8, marginBottom: 4, borderWidth: 1, borderColor: '#1f2633' },
-  rankNum: { color: '#00f2fe', fontWeight: 'bold', width: 28, fontSize: 12 },
-  rankName: { flex: 1, color: '#cbd5e1', fontSize: 12 },
-  rankTime: { color: '#7928ca', fontWeight: 'bold', fontSize: 12 },
+  playlistBox: { backgroundColor: '#1e2638', borderRadius: 6, marginBottom: 6, padding: 10 },
+  playlistHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  playlistNameText: { color: '#ffffff', fontSize: 14, fontWeight: '500' },
+  playlistContent: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' },
+  playlistSubItem: { paddingVertical: 4 },
+  playlistSubText: { color: '#cbd5e1', fontSize: 13 },
+
+  rankRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
+  rankNum: { color: '#ffd700', fontWeight: 'bold', width: 24 },
+  rankName: { flex: 1, color: '#ffffff', fontSize: 13 },
+  rankTime: { color: '#8a95a5', fontSize: 13, fontWeight: 'bold' },
+
+  bottomPlayer: { backgroundColor: '#1e2638', padding: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' },
+  nowPlayingText: { color: '#ffd700', fontSize: 13, fontWeight: 'bold', textAlign: 'center', marginBottom: 8 },
+  controls: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 20 },
+  cBtn: { padding: 6 },
+  cText: { color: '#ffffff', fontSize: 18 },
+  cBtnMain: { backgroundColor: '#ffd700', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 },
+  cTextMain: { color: '#1e2638', fontSize: 18, fontWeight: 'bold' },
 });
