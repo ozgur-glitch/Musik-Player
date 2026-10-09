@@ -2,7 +2,7 @@
   "expo": {
     "name": "musik-player",
     "slug": "musik-player",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./icon.png",
     "userInterfaceStyle": "dark",
@@ -28,10 +28,10 @@
     "web": {
       "favicon": "./icon.png"
     },
-    "owner": "oc2003",
+    "owner": "ozce",
     "extra": {
       "eas": {
-        "projectId": "4cf00b5c-f907-40e9-bbfa-a97db4ccfc6b"
+        "projectId": "dbbbb9a6-de42-4470-83a9-09a22a9bbafd"
       }
     }
   }
