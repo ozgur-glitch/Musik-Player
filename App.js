@@ -46,23 +46,23 @@ function formatTime(millis) {
   return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 }
 
+// Reine Zahlen-Formatierung für die Ranglisten (HH:MM:SS)
 function formatListeningTime(seconds) {
-  if (!seconds || seconds <= 0) return '0 Sek.';
+  if (!seconds || seconds <= 0) return '00:00:00';
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
 
-  if (hrs > 0) {
-    return `${hrs} Std. ${mins} Min.`;
-  } else if (mins > 0) {
-    return `${mins} Min. ${secs} Sek.`;
-  }
-  return `${secs} Sek.`;
+  const paddedHrs = hrs < 10 ? `0${hrs}` : `${hrs}`;
+  const paddedMins = mins < 10 ? `0${mins}` : `${mins}`;
+  const paddedSecs = secs < 10 ? `0${secs}` : `${secs}`;
+
+  return `${paddedHrs}:${paddedMins}:${paddedSecs}`;
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('library'); // 'library' oder 'ranking'
-  const [rankingSubTab, setRankingSubTab] = useState('songs'); // 'songs' oder 'artists'
+  const [activeTab, setActiveTab] = useState('library');
+  const [rankingSubTab, setRankingSubTab] = useState('songs');
   const [tracks, setTracks] = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [stats, setStats] = useState({});
@@ -257,7 +257,6 @@ export default function App() {
     playAudio(tracks[index]);
   }
 
-  // Direktes Abspielen per Track-Objekt (für Rangliste)
   async function playTrackDirect(track) {
     const idx = tracks.findIndex((t) => t.name === track.name || t.id === track.id);
     if (idx !== -1) {
@@ -427,7 +426,6 @@ export default function App() {
     return artist.toLowerCase().includes(q) || title.toLowerCase().includes(q) || item.name.toLowerCase().includes(q);
   });
 
-  // Song-Rangliste
   const sortedSongRanking = Object.keys(stats)
     .map((name) => {
       const foundTrack = tracks.find((t) => t.name === name);
@@ -440,7 +438,6 @@ export default function App() {
     .filter((item) => item.seconds > 0)
     .sort((a, b) => b.seconds - a.seconds);
 
-  // Interpreten-Rangliste
   const artistStats = {};
   Object.keys(stats).forEach((songName) => {
     const { artist } = parseSongName(songName);
@@ -664,7 +661,7 @@ export default function App() {
         {/* TAB 2: RANGLISTE */}
         {activeTab === 'ranking' && (
           <View style={{ marginTop: 10 }}>
-            {/* Unter-Kategorie Tabs (Titel vs. Interpreten) */}
+            {/* Unter-Kategorie Tabs */}
             <View style={styles.subTabBar}>
               <TouchableOpacity
                 style={[styles.subTabBtn, rankingSubTab === 'songs' && styles.activeSubTabBtn]}
@@ -690,7 +687,7 @@ export default function App() {
                 <View style={styles.tableHeader}>
                   <Text style={[styles.th, { width: 30 }, theme.subText]}>#</Text>
                   <Text style={[styles.th, { flex: 1 }, theme.subText]}>Titel & Interpret</Text>
-                  <Text style={[styles.th, { width: 110, textAlign: 'right' }, theme.subText]}>Gesamthörzeit</Text>
+                  <Text style={[styles.th, { width: 90, textAlign: 'right' }, theme.subText]}>Hörzeit</Text>
                 </View>
 
                 {sortedSongRanking.length === 0 ? (
@@ -711,7 +708,7 @@ export default function App() {
                           <Text style={[styles.tdTitle, theme.text]} numberOfLines={1}>▶ {parsed.title}</Text>
                           <Text style={[styles.tdArtist, theme.subText]} numberOfLines={1}>{parsed.artist}</Text>
                         </View>
-                        <Text style={[styles.tdTime, { width: 110 }]}>
+                        <Text style={[styles.tdTime, { width: 90 }]}>
                           {formatListeningTime(item.seconds)}
                         </Text>
                       </TouchableOpacity>
@@ -727,7 +724,7 @@ export default function App() {
                 <View style={styles.tableHeader}>
                   <Text style={[styles.th, { width: 30 }, theme.subText]}>#</Text>
                   <Text style={[styles.th, { flex: 1 }, theme.subText]}>Interpret</Text>
-                  <Text style={[styles.th, { width: 110, textAlign: 'right' }, theme.subText]}>Gesamthörzeit</Text>
+                  <Text style={[styles.th, { width: 90, textAlign: 'right' }, theme.subText]}>Hörzeit</Text>
                 </View>
 
                 {sortedArtistRanking.length === 0 ? (
@@ -741,7 +738,7 @@ export default function App() {
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.tdTitle, theme.text]} numberOfLines={1}>👤 {item.artist}</Text>
                       </View>
-                      <Text style={[styles.tdTime, { width: 110 }]}>
+                      <Text style={[styles.tdTime, { width: 90 }]}>
                         {formatListeningTime(item.seconds)}
                       </Text>
                     </View>
@@ -841,4 +838,56 @@ const styles = StyleSheet.create({
   devTitle: { fontWeight: 'bold', fontSize: 13, marginBottom: 4 },
   devText: { fontSize: 12 },
 
-  searchContainer: { flexDirection: 'row', alignItems: 'center', marginHorizontal:
+  searchContainer: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginTop: 8, borderRadius: 8, paddingHorizontal: 10 },
+  searchInput: { flex: 1, height: 38, fontSize: 14 },
+
+  actionRow: { flexDirection: 'row', gap: 10, marginTop: 10, marginBottom: 10 },
+  actionBtn: { flex: 1, backgroundColor: '#ffd700', paddingVertical: 8, borderRadius: 6, alignItems: 'center' },
+  actionBtnText: { color: '#1e2638', fontSize: 12, fontWeight: 'bold' },
+
+  mainScroll: { flex: 1, paddingHorizontal: 16 },
+  sectionTitle: { fontSize: 11, fontWeight: 'bold', marginTop: 14, marginBottom: 6, letterSpacing: 1 },
+
+  playlistInputRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  input: { flex: 1, borderRadius: 6, paddingHorizontal: 12, height: 38, fontSize: 13 },
+  createBtn: { backgroundColor: '#ffd700', paddingHorizontal: 14, justifyContent: 'center', borderRadius: 6 },
+  createBtnText: { color: '#1e2638', fontWeight: 'bold', fontSize: 13 },
+
+  playlistBox: { borderRadius: 6, marginBottom: 6, padding: 10 },
+  playlistHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  playlistNameText: { fontSize: 14, fontWeight: '500' },
+  playlistContent: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' },
+  playlistSubItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.03)' },
+  playlistSubTitle: { color: '#ffd700', fontSize: 13, fontWeight: 'bold' },
+  playlistSubArtist: { fontSize: 11, marginLeft: 14 },
+  miniSaveBtn: { backgroundColor: '#ffd700', paddingHorizontal: 8, justifyContent: 'center', borderRadius: 4 },
+
+  tableBox: { borderRadius: 8, padding: 12, marginBottom: 15 },
+  tableHeader: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.1)', paddingBottom: 8, marginBottom: 6 },
+  th: { fontSize: 11, fontWeight: 'bold' },
+  tableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.03)' },
+  tdRank: { color: '#ffd700', fontWeight: 'bold', fontSize: 13 },
+  tdTitle: { fontSize: 13, fontWeight: '500' },
+  tdArtist: { fontSize: 11 },
+  tdTime: { color: '#ffd700', fontSize: 11, fontWeight: 'bold', textAlign: 'right' },
+
+  songRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1 },
+  coverBox: { width: 42, height: 42, borderRadius: 6, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  songTitle: { fontSize: 14, fontWeight: '500', marginBottom: 2 },
+  activeSongTitle: { color: '#ffd700', fontWeight: 'bold' },
+  songArtist: { fontSize: 12 },
+  moreBtn: { paddingHorizontal: 12, paddingVertical: 4, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 4 },
+  moreBtnText: { color: '#ffd700', fontSize: 16, fontWeight: 'bold' },
+
+  bottomPlayer: { paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.1)' },
+  nowPlayingTitle: { fontSize: 14, fontWeight: 'bold', textAlign: 'center' },
+  nowPlayingArtist: { fontSize: 12, textAlign: 'center', marginBottom: 4 },
+  progressContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  slider: { flex: 1, height: 20, marginHorizontal: 6 },
+  timeText: { fontSize: 10, width: 32, textAlign: 'center' },
+  controls: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 20 },
+  cBtn: { padding: 6 },
+  cText: { fontSize: 18 },
+  cBtnMain: { backgroundColor: '#ffd700', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 },
+  cTextMain: { color: '#1e2638', fontSize: 18, fontWeight: 'bold' },
+});
