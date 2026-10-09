@@ -216,7 +216,7 @@ export default function App() {
             const subMp3s = await scanDirectoryRecursive(uri);
             mp3s = mp3s.concat(subMp3s);
           } catch (err) {
-            // Zugriffsfehler / keine Unterordner
+            // Ordner ohne Zugriff
           }
         }
       }
