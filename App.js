@@ -81,6 +81,9 @@ export default function App() {
   const [expandedPlaylistId, setExpandedPlaylistId] = useState(null);
   const [editingPlaylistId, setEditingPlaylistId] = useState(null);
   const [editingPlaylistName, setEditingPlaylistName] = useState('');
+  
+  // State für das Scroll-Modal zum Hinzufügen in eine Playlist
+  const [trackToAddToPlaylist, setTrackToAddToPlaylist] = useState(null);
 
   const [positionMillis, setPositionMillis] = useState(0);
   const [durationMillis, setDurationMillis] = useState(1);
@@ -209,7 +212,6 @@ export default function App() {
     }
   }
 
-  // Automatisches Einlesen aller Audio-Dateien über MediaLibrary (Blitzschnell)
   async function scanDeviceMusic() {
     try {
       const permission = await MediaLibrary.requestPermissionsAsync();
@@ -221,7 +223,7 @@ export default function App() {
       setLoading(true);
       const media = await MediaLibrary.getAssetsAsync({
         mediaType: MediaLibrary.MediaType.audio,
-        first: 1000, // Lädt bis zu 1000 Songs auf einmal
+        first: 1000,
       });
 
       if (media && media.assets) {
@@ -363,24 +365,21 @@ export default function App() {
       Alert.alert('Musik Player', 'Erstelle zuerst eine Playlist!');
       return;
     }
+    setTrackToAddToPlaylist(track);
+  }
 
-    const playlistOptions = playlists.map((pl) => ({
-      text: pl.name,
-      onPress: () => {
-        const updated = playlists.map((p) => {
-          if (p.id === pl.id) {
-            const alreadyExists = p.tracks.some((t) => t.id === track.id);
-            if (alreadyExists) return p;
-            return { ...p, tracks: [...p.tracks, track] };
-          }
-          return p;
-        });
-        savePlaylists(updated);
-      },
-    }));
-
-    playlistOptions.push({ text: 'Abbrechen', style: 'cancel' });
-    Alert.alert('Zu Playlist hinzufügen', `Wähle eine Playlist für "${track.name}":`, playlistOptions);
+  function confirmAddTrackToPlaylist(playlistId) {
+    if (!trackToAddToPlaylist) return;
+    const updated = playlists.map((p) => {
+      if (p.id === playlistId) {
+        const alreadyExists = p.tracks.some((t) => t.id === trackToAddToPlaylist.id);
+        if (alreadyExists) return p;
+        return { ...p, tracks: [...p.tracks, trackToAddToPlaylist] };
+      }
+      return p;
+    });
+    savePlaylists(updated);
+    setTrackToAddToPlaylist(null);
   }
 
   function savePlaylistName(playlistId) {
@@ -542,7 +541,6 @@ export default function App() {
               <TouchableOpacity style={styles.actionBtn} onPress={pickSingleTrack}>
                 <Text style={styles.actionBtnText}>+ DATEI</Text>
               </TouchableOpacity>
-              {/* Hier nutzen wir jetzt den blitzschnellen MediaLibrary Scan */}
               <TouchableOpacity style={styles.actionBtn} onPress={scanDeviceMusic}>
                 <Text style={styles.actionBtnText}>+ ALLE SONGS (GERÄT)</Text>
               </TouchableOpacity>
@@ -782,7 +780,7 @@ export default function App() {
 
           <View style={styles.controls}>
             <TouchableOpacity onPress={playPreviousTrack} style={styles.cBtn}>
-              <Text style={[styles.cTest, theme.text]}>⏮</Text>
+              <Text style={[styles.cText, theme.text]}>⏮</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={togglePlayPause} style={styles.cBtnMain}>
               <Text style={styles.cTextMain}>{isPlaying ? '⏸' : '▶'}</Text>
@@ -792,6 +790,39 @@ export default function App() {
             </TouchableOpacity>
             <TouchableOpacity onPress={playNextTrack} style={styles.cBtn}>
               <Text style={[styles.cText, theme.text]}>⏭</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* MODAL / OVERLAY FÜR ALLE PLAYLISTS ZUM HINZUFÜGEN */}
+      {trackToAddToPlaylist && (
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, theme.card]}>
+            <Text style={[styles.modalTitle, theme.text]}>Zu Playlist hinzufügen</Text>
+            <Text style={[styles.modalSubTitle, theme.subText]} numberOfLines={1}>
+              {trackToAddToPlaylist.name}
+            </Text>
+
+            <ScrollView style={{ maxHeight: 260, marginVertical: 8 }}>
+              {playlists.map((pl) => (
+                <TouchableOpacity
+                  key={pl.id}
+                  style={[styles.modalItem, theme.border]}
+                  onPress={() => confirmAddTrackToPlaylist(pl.id)}
+                >
+                  <Text style={[styles.modalItemText, theme.text]}>
+                    📜 {pl.name} ({pl.tracks ? pl.tracks.length : 0} Songs)
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={styles.modalCancelBtn}
+              onPress={() => setTrackToAddToPlaylist(null)}
+            >
+              <Text style={styles.modalCancelText}>Abbrechen</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -891,4 +922,14 @@ const styles = StyleSheet.create({
   cText: { fontSize: 18 },
   cBtnMain: { backgroundColor: '#ffd700', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 },
   cTextMain: { color: '#1e2638', fontSize: 18, fontWeight: 'bold' },
+
+  // Styles für das Playlist-Auswahl-Modal
+  modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
+  modalBox: { width: '85%', borderRadius: 12, padding: 20, elevation: 5 },
+  modalTitle: { fontSize: 16, fontWeight: 'bold', textAlign: 'center', marginBottom: 4 },
+  modalSubTitle: { fontSize: 12, textAlign: 'center', marginBottom: 12 },
+  modalItem: { paddingVertical: 12, borderBottomWidth: 1 },
+  modalItemText: { fontSize: 14, fontWeight: '500' },
+  modalCancelBtn: { backgroundColor: '#ff4d4d', paddingVertical: 10, borderRadius: 6, alignItems: 'center', marginTop: 12 },
+  modalCancelText: { color: '#ffffff', fontWeight: 'bold', fontSize: 13 },
 });
