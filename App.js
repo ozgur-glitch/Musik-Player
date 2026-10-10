@@ -13,6 +13,8 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Notifications from 'expo-notifications';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Slider from '@react-native-community/slider';
@@ -82,7 +84,6 @@ export default function App() {
   const [editingPlaylistId, setEditingPlaylistId] = useState(null);
   const [editingPlaylistName, setEditingPlaylistName] = useState('');
   
-  // State für das Scroll-Modal zum Hinzufügen in eine Playlist
   const [trackToAddToPlaylist, setTrackToAddToPlaylist] = useState(null);
 
   const [positionMillis, setPositionMillis] = useState(0);
@@ -360,6 +361,72 @@ export default function App() {
     setNewPlaylistName('');
   }
 
+  // Playlist löschen Funktion
+  function deletePlaylist(playlistId, playlistName) {
+    Alert.alert(
+      'Playlist löschen',
+      `Möchtest du die Playlist "${playlistName}" wirklich löschen?`,
+      [
+        { text: 'Abbrechen', style: 'cancel' },
+        {
+          text: 'Löschen',
+          style: 'destructive',
+          onPress: () => {
+            const updated = playlists.filter((p) => p.id !== playlistId);
+            savePlaylists(updated);
+            if (activePlaylistId === playlistId) {
+              setActivePlaylistId(null);
+            }
+          },
+        },
+      ]
+    );
+  }
+
+  // Rangliste sichern (Exportieren als JSON-Datei)
+  async function backupRanking() {
+    try {
+      if (Object.keys(stats).length === 0) {
+        Alert.alert('Hinweis', 'Es sind keine Ranglisten-Daten zum Sichern vorhanden.');
+        return;
+      }
+      const fileUri = `${FileSystem.documentDirectory}musik_player_ranking_backup.json`;
+      await FileSystem.writeAsStringAsync(fileUri, JSON.stringify(stats, null, 2));
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri);
+      } else {
+        Alert.alert('Erfolg', 'Rangliste wurde gesichert.');
+      }
+    } catch (e) {
+      console.log('Backup Fehler:', e);
+      Alert.alert('Fehler', 'Rangliste konnte nicht gesichert werden.');
+    }
+  }
+
+  // Rangliste wiederherstellen (Importieren aus JSON-Datei)
+  async function restoreRanking() {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/json',
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const fileUri = result.assets[0].uri;
+        const fileContent = await FileSystem.readAsStringAsync(fileUri);
+        const parsedStats = JSON.parse(fileContent);
+
+        setStats(parsedStats);
+        await AsyncStorage.setItem(STORAGE_KEY_STATS, JSON.stringify(parsedStats));
+        Alert.alert('Erfolg', 'Rangliste wurde erfolgreich wiederhergestellt!');
+      }
+    } catch (e) {
+      console.log('Restore Fehler:', e);
+      Alert.alert('Fehler', 'Ungültige Backup-Datei.');
+    }
+  }
+
   function addTrackToPlaylist(track) {
     if (playlists.length === 0) {
       Alert.alert('Musik Player', 'Erstelle zuerst eine Playlist!');
@@ -584,9 +651,14 @@ export default function App() {
                       <Text style={[styles.playlistNameText, theme.text]}>
                         📜 {pl.name} ({pl.tracks ? pl.tracks.length : 0} Songs)
                       </Text>
-                      <TouchableOpacity onPress={() => { setEditingPlaylistId(pl.id); setEditingPlaylistName(pl.name); }}>
-                        <Text style={{ fontSize: 12 }}>✏️</Text>
-                      </TouchableOpacity>
+                      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                        <TouchableOpacity onPress={() => { setEditingPlaylistId(pl.id); setEditingPlaylistName(pl.name); }}>
+                          <Text style={{ fontSize: 12 }}>✏️</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => deletePlaylist(pl.id, pl.name)}>
+                          <Text style={{ fontSize: 12 }}>🗑️</Text>
+                        </TouchableOpacity>
+                      </View>
                     </TouchableOpacity>
                   )}
                   <TouchableOpacity onPress={() => setExpandedPlaylistId(expandedPlaylistId === pl.id ? null : pl.id)}>
@@ -660,6 +732,16 @@ export default function App() {
         {/* TAB 2: RANGLISTE */}
         {activeTab === 'ranking' && (
           <View style={{ marginTop: 10 }}>
+            {/* Backup & Restore Action Row */}
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
+              <TouchableOpacity style={styles.backupBtn} onPress={backupRanking}>
+                <Text style={styles.backupBtnText}>📤 Rangliste sichern</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.backupBtn} onPress={restoreRanking}>
+                <Text style={styles.backupBtnText}>📥 Wiederherstellen</Text>
+              </TouchableOpacity>
+            </View>
+
             {/* Unter-Kategorie Tabs */}
             <View style={styles.subTabBar}>
               <TouchableOpacity
@@ -749,7 +831,7 @@ export default function App() {
         )}
       </ScrollView>
 
-      {/* Unterer Player */}
+      {/* Unterer Player mit modernen & professionellen Buttons */}
       {currentTrack && (
         <View style={[styles.bottomPlayer, theme.nav]}>
           <Text style={[styles.nowPlayingTitle, theme.text]} numberOfLines={1}>
@@ -779,17 +861,17 @@ export default function App() {
           </View>
 
           <View style={styles.controls}>
-            <TouchableOpacity onPress={playPreviousTrack} style={styles.cBtn}>
-              <Text style={[styles.cText, theme.text]}>⏮</Text>
+            <TouchableOpacity onPress={playPreviousTrack} style={styles.modernBtn}>
+              <Text style={styles.modernBtnText}>⏮</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={togglePlayPause} style={styles.cBtnMain}>
-              <Text style={styles.cTextMain}>{isPlaying ? '⏸' : '▶'}</Text>
+            <TouchableOpacity onPress={togglePlayPause} style={styles.modernBtnMain}>
+              <Text style={styles.modernBtnMainText}>{isPlaying ? '⏸' : '▶'}</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={stopAudio} style={styles.cBtn}>
-              <Text style={[styles.cText, theme.text]}>⏹</Text>
+            <TouchableOpacity onPress={stopAudio} style={styles.modernBtn}>
+              <Text style={styles.modernBtnText}>⏹</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={playNextTrack} style={styles.cBtn}>
-              <Text style={[styles.cText, theme.text]}>⏭</Text>
+            <TouchableOpacity onPress={playNextTrack} style={styles.modernBtn}>
+              <Text style={styles.modernBtnText}>⏭</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -866,6 +948,9 @@ const styles = StyleSheet.create({
   subTabText: { fontSize: 11, fontWeight: 'bold' },
   activeSubTabText: { color: '#1e2638' },
 
+  backupBtn: { flex: 1, backgroundColor: 'rgba(255,215,0,0.15)', borderWidth: 1, borderColor: '#ffd700', paddingVertical: 8, borderRadius: 6, alignItems: 'center' },
+  backupBtnText: { color: '#ffd700', fontSize: 12, fontWeight: 'bold' },
+
   devBox: { marginHorizontal: 16, marginTop: 8, padding: 10, borderRadius: 8 },
   devTitle: { fontWeight: 'bold', fontSize: 13, marginBottom: 4 },
   devText: { fontSize: 12 },
@@ -911,19 +996,20 @@ const styles = StyleSheet.create({
   moreBtn: { paddingHorizontal: 12, paddingVertical: 4, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 4 },
   moreBtnText: { color: '#ffd700', fontSize: 16, fontWeight: 'bold' },
 
-  bottomPlayer: { paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.1)' },
+  bottomPlayer: { paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.1)' },
   nowPlayingTitle: { fontSize: 14, fontWeight: 'bold', textAlign: 'center' },
-  nowPlayingArtist: { fontSize: 12, textAlign: 'center', marginBottom: 4 },
-  progressContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  nowPlayingArtist: { fontSize: 12, textAlign: 'center', marginBottom: 6 },
+  progressContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   slider: { flex: 1, height: 20, marginHorizontal: 6 },
   timeText: { fontSize: 10, width: 32, textAlign: 'center' },
-  controls: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 20 },
-  cBtn: { padding: 6 },
-  cText: { fontSize: 18 },
-  cBtnMain: { backgroundColor: '#ffd700', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 },
-  cTextMain: { color: '#1e2638', fontSize: 18, fontWeight: 'bold' },
+  
+  // Professionelles modernes Button-Design
+  controls: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 16 },
+  modernBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.08)', justifyContent: 'center', alignItems: 'center' },
+  modernBtnText: { fontSize: 16, color: '#ffd700' },
+  modernBtnMain: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#ffd700', justifyContent: 'center', alignItems: 'center', shadowColor: '#ffd700', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.4, shadowRadius: 4, elevation: 4 },
+  modernBtnMainText: { fontSize: 20, color: '#1e2638', fontWeight: 'bold', marginLeft: 2 },
 
-  // Styles für das Playlist-Auswahl-Modal
   modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
   modalBox: { width: '85%', borderRadius: 12, padding: 20, elevation: 5 },
   modalTitle: { fontSize: 16, fontWeight: 'bold', textAlign: 'center', marginBottom: 4 },
