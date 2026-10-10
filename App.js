@@ -13,6 +13,7 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
+import * as Notifications from 'expo-notifications';
 import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Slider from '@react-native-community/slider';
@@ -99,6 +100,13 @@ export default function App() {
   async function requestPermissions() {
     try {
       await MediaLibrary.requestPermissionsAsync();
+
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
     } catch (e) {
       console.log('Permission Error:', e);
     }
