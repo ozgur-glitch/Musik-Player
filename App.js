@@ -11,7 +11,6 @@ import {
   ScrollView,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import * as Notifications from 'expo-notifications';
 import { Audio } from 'expo-av';
@@ -47,7 +46,6 @@ function formatTime(millis) {
   return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 }
 
-// Reine Zahlen-Formatierung für die Ranglisten (HH:MM:SS)
 function formatListeningTime(seconds) {
   if (!seconds || seconds <= 0) return '00:00:00';
   const hrs = Math.floor(seconds / 3600);
@@ -211,49 +209,43 @@ export default function App() {
     }
   }
 
-  async function scanDirectoryRecursive(directoryUri) {
-    let mp3s = [];
+  // Automatisches Einlesen aller Audio-Dateien über MediaLibrary (Blitzschnell)
+  async function scanDeviceMusic() {
     try {
-      const files = await FileSystem.StorageAccessFramework.readDirectoryAsync(directoryUri);
-      for (const uri of files) {
-        const decoded = decodeURIComponent(uri);
-        if (uri.endsWith('.mp3') || decoded.endsWith('.mp3') || uri.includes('.mp3')) {
-          const name = decoded.substring(decoded.lastIndexOf('/') + 1);
-          mp3s.push({ id: `${Date.now()}_${Math.random()}`, name, uri });
-        } else {
-          try {
-            const subMp3s = await scanDirectoryRecursive(uri);
-            mp3s = mp3s.concat(subMp3s);
-          } catch (err) {
-            // Ordner ohne Zugriff
-          }
-        }
+      const permission = await MediaLibrary.requestPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Berechtigung erforderlich', 'Bitte erlaube den Zugriff auf die Medienbibliothek.');
+        return;
       }
-    } catch (e) {
-      console.log('Fehler beim Ordner-Scan:', e);
-    }
-    return mp3s;
-  }
-
-  async function pickFolder() {
-    try {
-      const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-      if (!permissions.granted) return;
 
       setLoading(true);
-      const newTracks = await scanDirectoryRecursive(permissions.directoryUri);
+      const media = await MediaLibrary.getAssetsAsync({
+        mediaType: MediaLibrary.MediaType.audio,
+        first: 1000, // Lädt bis zu 1000 Songs auf einmal
+      });
 
-      const existingNames = new Set(tracks.map((t) => t.name));
-      const filteredNew = newTracks.filter((t) => !existingNames.has(t.name));
-      const updated = [...tracks, ...filteredNew];
+      if (media && media.assets) {
+        const existingNames = new Set(tracks.map((t) => t.name));
+        const newTracks = media.assets
+          .filter((asset) => !existingNames.has(asset.filename))
+          .map((asset) => ({
+            id: asset.id,
+            name: asset.filename,
+            uri: asset.uri,
+          }));
 
-      saveTracks(updated);
-      setLoading(false);
-      Alert.alert('Erfolg', `${filteredNew.length} MP3-Dateien (inkl. Unterordner) hinzugefügt.`);
+        const updated = [...tracks, ...newTracks];
+        saveTracks(updated);
+        setLoading(false);
+        Alert.alert('Erfolg', `${newTracks.length} neue Songs vom Gerät hinzugefügt.`);
+      } else {
+        setLoading(false);
+        Alert.alert('Hinweis', 'Keine Musikdateien gefunden.');
+      }
     } catch (e) {
-      console.log('Ordner-Scan Fehler:', e);
+      console.log('MediaLibrary Scan Fehler:', e);
       setLoading(false);
-      Alert.alert('Hinweis', 'Ordner-Auswahl auf diesem Gerät nicht verfügbar.');
+      Alert.alert('Fehler', 'Mediensuche fehlgeschlagen.');
     }
   }
 
@@ -550,8 +542,9 @@ export default function App() {
               <TouchableOpacity style={styles.actionBtn} onPress={pickSingleTrack}>
                 <Text style={styles.actionBtnText}>+ DATEI</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.actionBtn} onPress={pickFolder}>
-                <Text style={styles.actionBtnText}>+ ORDNER</Text>
+              {/* Hier nutzen wir jetzt den blitzschnellen MediaLibrary Scan */}
+              <TouchableOpacity style={styles.actionBtn} onPress={scanDeviceMusic}>
+                <Text style={styles.actionBtnText}>+ ALLE SONGS (GERÄT)</Text>
               </TouchableOpacity>
             </View>
 
@@ -789,7 +782,7 @@ export default function App() {
 
           <View style={styles.controls}>
             <TouchableOpacity onPress={playPreviousTrack} style={styles.cBtn}>
-              <Text style={[styles.cText, theme.text]}>⏮</Text>
+              <Text style={[styles.cTest, theme.text]}>⏮</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={togglePlayPause} style={styles.cBtnMain}>
               <Text style={styles.cTextMain}>{isPlaying ? '⏸' : '▶'}</Text>
@@ -851,7 +844,7 @@ const styles = StyleSheet.create({
 
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 10, marginBottom: 10 },
   actionBtn: { flex: 1, backgroundColor: '#ffd700', paddingVertical: 8, borderRadius: 6, alignItems: 'center' },
-  actionBtnText: { color: '#1e2638', fontSize: 12, fontWeight: 'bold' },
+  actionBtnText: { color: '#1e2638', fontSize: 11, fontWeight: 'bold' },
 
   mainScroll: { flex: 1, paddingHorizontal: 16 },
   sectionTitle: { fontSize: 11, fontWeight: 'bold', marginTop: 14, marginBottom: 6, letterSpacing: 1 },
