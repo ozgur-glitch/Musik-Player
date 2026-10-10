@@ -14,7 +14,6 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Notifications from 'expo-notifications';
 import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
 import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Slider from '@react-native-community/slider';
@@ -361,7 +360,6 @@ export default function App() {
     setNewPlaylistName('');
   }
 
-  // Playlist löschen Funktion
   function deletePlaylist(playlistId, playlistName) {
     Alert.alert(
       'Playlist löschen',
@@ -383,28 +381,36 @@ export default function App() {
     );
   }
 
-  // Rangliste sichern (Exportieren als JSON-Datei)
+  // Rangliste direkt auf dem Handy speichern (über Ordnerauswahl)
   async function backupRanking() {
     try {
       if (Object.keys(stats).length === 0) {
         Alert.alert('Hinweis', 'Es sind keine Ranglisten-Daten zum Sichern vorhanden.');
         return;
       }
-      const fileUri = `${FileSystem.documentDirectory}musik_player_ranking_backup.json`;
-      await FileSystem.writeAsStringAsync(fileUri, JSON.stringify(stats, null, 2));
 
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(fileUri);
-      } else {
-        Alert.alert('Erfolg', 'Rangliste wurde gesichert.');
-      }
+      const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+      if (!permissions.granted) return;
+
+      setLoading(true);
+      const jsonString = JSON.stringify(stats, null, 2);
+
+      const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+        permissions.directoryUri,
+        'musik_player_ranking',
+        'application/json'
+      );
+
+      await FileSystem.writeAsStringAsync(fileUri, jsonString);
+      setLoading(false);
+      Alert.alert('Erfolg', 'Rangliste wurde direkt auf dem Handy gespeichert!');
     } catch (e) {
       console.log('Backup Fehler:', e);
-      Alert.alert('Fehler', 'Rangliste konnte nicht gesichert werden.');
+      setLoading(false);
+      Alert.alert('Fehler', 'Speichern fehlgeschlagen.');
     }
   }
 
-  // Rangliste wiederherstellen (Importieren aus JSON-Datei)
   async function restoreRanking() {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -1003,7 +1009,6 @@ const styles = StyleSheet.create({
   slider: { flex: 1, height: 20, marginHorizontal: 6 },
   timeText: { fontSize: 10, width: 32, textAlign: 'center' },
   
-  // Professionelles modernes Button-Design
   controls: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 16 },
   modernBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.08)', justifyContent: 'center', alignItems: 'center' },
   modernBtnText: { fontSize: 16, color: '#ffd700' },
