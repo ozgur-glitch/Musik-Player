@@ -93,11 +93,36 @@ export default function App() {
   const lastPositionRef = useRef(0);
   const currentSongNameRef = useRef('');
 
+  // Refs zur Vermeidung veralteter Werte im Playback-Listener
+  const tracksRef = useRef([]);
+  const playlistsRef = useRef([]);
+  const currentTrackIndexRef = useRef(null);
+  const activePlaylistIdRef = useRef(null);
+  const playlistTrackIndexRef = useRef(null);
+
+  useEffect(() => {
+    tracksRef.current = tracks;
+  }, [tracks]);
+
+  useEffect(() => {
+    playlistsRef.current = playlists;
+  }, [playlists]);
+
   useEffect(() => {
     loadSavedData();
     setupAudioMode();
     requestPermissions();
   }, []);
+
+  function updateTrackSelection(trackIdx, playlistId = null, plTrackIdx = null) {
+    setCurrentTrackIndex(trackIdx);
+    setActivePlaylistId(playlistId);
+    setPlaylistTrackIndex(plTrackIdx);
+
+    currentTrackIndexRef.current = trackIdx;
+    activePlaylistIdRef.current = playlistId;
+    playlistTrackIndexRef.current = plTrackIdx;
+  }
 
   async function requestPermissions() {
     try {
@@ -133,8 +158,16 @@ export default function App() {
       const savedStats = await AsyncStorage.getItem(STORAGE_KEY_STATS);
       const savedTheme = await AsyncStorage.getItem(STORAGE_KEY_THEME);
 
-      if (savedTracks) setTracks(JSON.parse(savedTracks));
-      if (savedPlaylists) setPlaylists(JSON.parse(savedPlaylists));
+      if (savedTracks) {
+        const parsedTracks = JSON.parse(savedTracks);
+        setTracks(parsedTracks);
+        tracksRef.current = parsedTracks;
+      }
+      if (savedPlaylists) {
+        const parsedPlaylists = JSON.parse(savedPlaylists);
+        setPlaylists(parsedPlaylists);
+        playlistsRef.current = parsedPlaylists;
+      }
       if (savedStats) setStats(JSON.parse(savedStats));
       if (savedTheme !== null) setIsDarkMode(JSON.parse(savedTheme));
     } catch (e) {
@@ -150,11 +183,13 @@ export default function App() {
 
   async function saveTracks(newTracks) {
     setTracks(newTracks);
+    tracksRef.current = newTracks;
     await AsyncStorage.setItem(STORAGE_KEY_TRACKS, JSON.stringify(newTracks));
   }
 
   async function savePlaylists(newPlaylists) {
     setPlaylists(newPlaylists);
+    playlistsRef.current = newPlaylists;
     await AsyncStorage.setItem(STORAGE_KEY_PLAYLISTS, JSON.stringify(newPlaylists));
   }
 
@@ -188,7 +223,7 @@ export default function App() {
         lastPositionRef.current = status.positionMillis;
       }
 
-      // Automatisches Weiterspringen, wenn der Song zu Ende ist
+      // Automatisches Weiterspringen, wenn der Song beendet ist
       if (status.didJustFinish && !status.isLooping) {
         playNextTrack();
       }
@@ -277,32 +312,29 @@ export default function App() {
   }
 
   async function playTrackFromLibrary(originalIndex) {
-    if (originalIndex < 0 || originalIndex >= tracks.length) return;
-    setActivePlaylistId(null);
-    setPlaylistTrackIndex(null);
-    setCurrentTrackIndex(originalIndex);
-    playAudio(tracks[originalIndex]);
+    const currentTracks = tracksRef.current;
+    if (originalIndex < 0 || originalIndex >= currentTracks.length) return;
+    updateTrackSelection(originalIndex, null, null);
+    playAudio(currentTracks[originalIndex]);
   }
 
   async function playTrackDirect(track) {
-    const idx = tracks.findIndex((t) => t.name === track.name || t.id === track.id);
+    const currentTracks = tracksRef.current;
+    const idx = currentTracks.findIndex((t) => t.name === track.name || t.id === track.id);
     if (idx !== -1) {
       playTrackFromLibrary(idx);
     } else {
-      setActivePlaylistId(null);
-      setPlaylistTrackIndex(null);
-      setCurrentTrackIndex(null);
+      updateTrackSelection(null, null, null);
       playAudio(track);
     }
   }
 
   async function playTrackFromPlaylist(playlistId, trackIndex) {
-    const pl = playlists.find((p) => p.id === playlistId);
+    const currentPlaylists = playlistsRef.current;
+    const pl = currentPlaylists.find((p) => p.id === playlistId);
     if (!pl || !pl.tracks || trackIndex < 0 || trackIndex >= pl.tracks.length) return;
 
-    setActivePlaylistId(playlistId);
-    setPlaylistTrackIndex(trackIndex);
-    setCurrentTrackIndex(null);
+    updateTrackSelection(null, playlistId, trackIndex);
     playAudio(pl.tracks[trackIndex]);
   }
 
@@ -349,24 +381,32 @@ export default function App() {
   }
 
   function playNextTrack() {
-    if (activePlaylistId) {
-      const pl = playlists.find((p) => p.id === activePlaylistId);
-      if (pl && playlistTrackIndex !== null && playlistTrackIndex < pl.tracks.length - 1) {
-        playTrackFromPlaylist(activePlaylistId, playlistTrackIndex + 1);
+    const currentPlId = activePlaylistIdRef.current;
+    const currentPlTrackIdx = playlistTrackIndexRef.current;
+    const currentTrkIdx = currentTrackIndexRef.current;
+
+    if (currentPlId) {
+      const pl = playlistsRef.current.find((p) => p.id === currentPlId);
+      if (pl && currentPlTrackIdx !== null && currentPlTrackIdx < pl.tracks.length - 1) {
+        playTrackFromPlaylist(currentPlId, currentPlTrackIdx + 1);
       }
-    } else if (currentTrackIndex !== null && currentTrackIndex < tracks.length - 1) {
-      playTrackFromLibrary(currentTrackIndex + 1);
+    } else if (currentTrkIdx !== null && currentTrkIdx < tracksRef.current.length - 1) {
+      playTrackFromLibrary(currentTrkIdx + 1);
     }
   }
 
   function playPreviousTrack() {
-    if (activePlaylistId) {
-      const pl = playlists.find((p) => p.id === activePlaylistId);
-      if (pl && playlistTrackIndex !== null && playlistTrackIndex > 0) {
-        playTrackFromPlaylist(activePlaylistId, playlistTrackIndex - 1);
+    const currentPlId = activePlaylistIdRef.current;
+    const currentPlTrackIdx = playlistTrackIndexRef.current;
+    const currentTrkIdx = currentTrackIndexRef.current;
+
+    if (currentPlId) {
+      const pl = playlistsRef.current.find((p) => p.id === currentPlId);
+      if (pl && currentPlTrackIdx !== null && currentPlTrackIdx > 0) {
+        playTrackFromPlaylist(currentPlId, currentPlTrackIdx - 1);
       }
-    } else if (currentTrackIndex !== null && currentTrackIndex > 0) {
-      playTrackFromLibrary(currentTrackIndex - 1);
+    } else if (currentTrkIdx !== null && currentTrkIdx > 0) {
+      playTrackFromLibrary(currentTrkIdx - 1);
     }
   }
 
@@ -398,7 +438,7 @@ export default function App() {
             const updated = playlists.filter((p) => p.id !== playlistId);
             savePlaylists(updated);
             if (activePlaylistId === playlistId) {
-              setActivePlaylistId(null);
+              updateTrackSelection(null, null, null);
             }
           },
         },
