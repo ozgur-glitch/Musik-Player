@@ -2,12 +2,12 @@
   "expo": {
     "name": "Musik Player",
     "slug": "musik-player",
-    "version": "1.1.5",
+    "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#1e2638"
     },
@@ -16,7 +16,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./icon.png",
         "backgroundColor": "#1e2638"
       },
       "permissions": [
@@ -27,7 +27,7 @@
       "package": "com.ozgcetin20.musikplayer"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./icon.png"
     },
     "plugins": [
       [
