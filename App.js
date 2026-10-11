@@ -187,6 +187,11 @@ export default function App() {
       } else {
         lastPositionRef.current = status.positionMillis;
       }
+
+      // Automatisches Weiterspringen, wenn der Song zu Ende ist
+      if (status.didJustFinish && !status.isLooping) {
+        playNextTrack();
+      }
     }
   }
 
