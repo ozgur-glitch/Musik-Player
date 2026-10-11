@@ -9,6 +9,7 @@ import {
   Alert,
   StatusBar,
   ScrollView,
+  BackHandler,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as MediaLibrary from 'expo-media-library';
@@ -103,10 +104,8 @@ export default function App() {
       await MediaLibrary.requestPermissionsAsync();
 
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
       if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
+        await Notifications.requestPermissionsAsync();
       }
     } catch (e) {
       console.log('Permission Error:', e);
@@ -191,6 +190,27 @@ export default function App() {
     }
   }
 
+  async function exitApp() {
+    Alert.alert(
+      'App beenden',
+      'Möchtest du die App und die Musikwiedergabe wirklich beenden?',
+      [
+        { text: 'Abbrechen', style: 'cancel' },
+        {
+          text: 'Beenden',
+          style: 'destructive',
+          onPress: async () => {
+            if (sound) {
+              await sound.stopAsync();
+              await sound.unloadAsync();
+            }
+            BackHandler.exitApp();
+          },
+        },
+      ]
+    );
+  }
+
   async function pickSingleTrack() {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -251,12 +271,12 @@ export default function App() {
     }
   }
 
-  async function playTrackFromLibrary(index) {
-    if (index < 0 || index >= tracks.length) return;
+  async function playTrackFromLibrary(originalIndex) {
+    if (originalIndex < 0 || originalIndex >= tracks.length) return;
     setActivePlaylistId(null);
     setPlaylistTrackIndex(null);
-    setCurrentTrackIndex(index);
-    playAudio(tracks[index]);
+    setCurrentTrackIndex(originalIndex);
+    playAudio(tracks[originalIndex]);
   }
 
   async function playTrackDirect(track) {
@@ -381,7 +401,6 @@ export default function App() {
     );
   }
 
-  // Rangliste direkt auf dem Handy speichern (über Ordnerauswahl)
   async function backupRanking() {
     try {
       if (Object.keys(stats).length === 0) {
@@ -492,7 +511,10 @@ export default function App() {
     savePlaylists(updatedPlaylists);
   }
 
-  const filteredTracks = tracks.filter((item) => {
+  const filteredTracks = tracks.map((item, originalIndex) => ({
+    ...item,
+    originalIndex,
+  })).filter((item) => {
     const { artist, title } = parseSongName(item.name);
     const q = searchQuery.toLowerCase();
     return artist.toLowerCase().includes(q) || title.toLowerCase().includes(q) || item.name.toLowerCase().includes(q);
@@ -545,7 +567,7 @@ export default function App() {
       {/* Header */}
       <View style={[styles.navBar, theme.nav]}>
         <Text style={[styles.navTitle, theme.text]}>Musik Player</Text>
-        <View style={{ flexDirection: 'row', gap: 12 }}>
+        <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
           <TouchableOpacity onPress={() => setShowDevInfo(!showDevInfo)}>
             <Text style={{ fontSize: 18 }}>ℹ️</Text>
           </TouchableOpacity>
@@ -554,6 +576,9 @@ export default function App() {
           </TouchableOpacity>
           <TouchableOpacity onPress={() => setShowSearch(!showSearch)}>
             <Text style={{ fontSize: 18 }}>🔍</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={exitApp}>
+            <Text style={{ fontSize: 18 }}>🚪</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -709,17 +734,17 @@ export default function App() {
             ))}
 
             <Text style={[styles.sectionTitle, theme.subText]}>ALLE SONGS ({filteredTracks.length})</Text>
-            {filteredTracks.map((item, index) => {
-              const isSelected = !activePlaylistId && currentTrackIndex === index;
+            {filteredTracks.map((item) => {
+              const isSelected = !activePlaylistId && currentTrackIndex === item.originalIndex;
               const { artist, title } = parseSongName(item.name);
 
               return (
-                <View key={item.id || index} style={[styles.songRow, theme.border]}>
+                <View key={item.id || item.originalIndex} style={[styles.songRow, theme.border]}>
                   <View style={[styles.coverBox, theme.card]}>
                     <Text style={{ fontSize: 18 }}>🎵</Text>
                   </View>
 
-                  <TouchableOpacity style={{ flex: 1 }} onPress={() => playTrackFromLibrary(index)}>
+                  <TouchableOpacity style={{ flex: 1 }} onPress={() => playTrackFromLibrary(item.originalIndex)}>
                     <Text style={[styles.songTitle, theme.text, isSelected && styles.activeSongTitle]} numberOfLines={1}>
                       {title}
                     </Text>
@@ -837,7 +862,7 @@ export default function App() {
         )}
       </ScrollView>
 
-      {/* Unterer Player mit modernen & professionellen Buttons */}
+      {/* Unterer Player */}
       {currentTrack && (
         <View style={[styles.bottomPlayer, theme.nav]}>
           <Text style={[styles.nowPlayingTitle, theme.text]} numberOfLines={1}>
