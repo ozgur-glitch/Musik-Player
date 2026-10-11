@@ -93,12 +93,12 @@ export default function App() {
   const lastPositionRef = useRef(0);
   const currentSongNameRef = useRef('');
 
-  // Refs zur Vermeidung veralteter Werte im Playback-Listener
   const tracksRef = useRef([]);
   const playlistsRef = useRef([]);
   const currentTrackIndexRef = useRef(null);
   const activePlaylistIdRef = useRef(null);
   const playlistTrackIndexRef = useRef(null);
+  const soundRef = useRef(null);
 
   useEffect(() => {
     tracksRef.current = tracks;
@@ -107,6 +107,10 @@ export default function App() {
   useEffect(() => {
     playlistsRef.current = playlists;
   }, [playlists]);
+
+  useEffect(() => {
+    soundRef.current = sound;
+  }, [sound]);
 
   useEffect(() => {
     loadSavedData();
@@ -127,7 +131,6 @@ export default function App() {
   async function requestPermissions() {
     try {
       await MediaLibrary.requestPermissionsAsync();
-
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
       if (existingStatus !== 'granted') {
         await Notifications.requestPermissionsAsync();
@@ -223,7 +226,6 @@ export default function App() {
         lastPositionRef.current = status.positionMillis;
       }
 
-      // Automatisches Weiterspringen, wenn der Song beendet ist
       if (status.didJustFinish && !status.isLooping) {
         playNextTrack();
       }
@@ -240,9 +242,9 @@ export default function App() {
           text: 'Beenden',
           style: 'destructive',
           onPress: async () => {
-            if (sound) {
-              await sound.stopAsync();
-              await sound.unloadAsync();
+            if (soundRef.current) {
+              await soundRef.current.stopAsync();
+              await soundRef.current.unloadAsync();
             }
             BackHandler.exitApp();
           },
@@ -346,8 +348,13 @@ export default function App() {
 
       await setupAudioMode();
 
-      if (sound) {
-        await sound.unloadAsync();
+      if (soundRef.current) {
+        try {
+          await soundRef.current.stopAsync();
+          await soundRef.current.unloadAsync();
+        } catch (err) {
+          console.log('Unload error:', err);
+        }
       }
 
       const { sound: newSound } = await Audio.Sound.createAsync(
@@ -366,18 +373,33 @@ export default function App() {
   }
 
   async function togglePlayPause() {
-    if (!sound) return;
-    if (isPlaying) {
-      await sound.pauseAsync();
-    } else {
-      await sound.playAsync();
+    const currentSound = soundRef.current;
+    if (!currentSound) return;
+    try {
+      const status = await currentSound.getStatusAsync();
+      if (status.isLoaded) {
+        if (status.isPlaying) {
+          await currentSound.pauseAsync();
+        } else {
+          await currentSound.playAsync();
+        }
+      }
+    } catch (e) {
+      console.log('Play/Pause Fehler:', e);
     }
   }
 
   async function stopAudio() {
-    if (!sound) return;
-    await sound.stopAsync();
-    setIsPlaying(false);
+    const currentSound = soundRef.current;
+    if (!currentSound) return;
+    try {
+      await currentSound.stopAsync();
+      await currentSound.setPositionAsync(0);
+      setIsPlaying(false);
+      setPositionMillis(0);
+    } catch (e) {
+      console.log('Stop Fehler:', e);
+    }
   }
 
   function playNextTrack() {
@@ -411,10 +433,15 @@ export default function App() {
   }
 
   async function onSlidingComplete(value) {
-    if (sound) {
-      await sound.setPositionAsync(value);
-    }
     setIsSeeking(false);
+    const currentSound = soundRef.current;
+    if (currentSound) {
+      try {
+        await currentSound.setPositionAsync(value);
+      } catch (e) {
+        console.log('Seek Fehler:', e);
+      }
+    }
   }
 
   function createPlaylist() {
@@ -926,9 +953,9 @@ export default function App() {
               value={positionMillis}
               minimumTrackTintColor="#ffd700"
               maximumTrackTintColor={isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}
-              thumbTintColor="#ffd700"
+              thumbTintColor="#ffd700}
+              onSlidingStart={() => setIsSeeking(true)}
               onValueChange={(val) => {
-                setIsSeeking(true);
                 setPositionMillis(val);
               }}
               onSlidingComplete={onSlidingComplete}
