@@ -4,40 +4,46 @@
     "slug": "musik-player",
     "version": "1.1.5",
     "orientation": "portrait",
-    "icon": "./icon.png",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
-      "image": "./splash.png",
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#121212"
+      "backgroundColor": "#1e2638"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.oc2003.musikplayer"
+      "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./icon.png",
-        "backgroundColor": "#121212"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1e2638"
       },
-      "package": "com.oc2003.musikplayer",
       "permissions": [
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "WAKE_LOCK",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
-        "MEDIA_CONTENT_CONTROL"
-      ]
+        "WAKE_LOCK"
+      ],
+      "package": "com.ozgcetin20.musikplayer"
     },
-    "owner": "ozce",
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your media library.",
+          "savePhotosPermission": "Allow $(PRODUCT_NAME) to save photos.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ]
+    ],
     "extra": {
       "eas": {
-        "projectId": "dbbbb9a6-de42-4470-83a9-09a22a9bbafd"
+        "projectId": "f6c32bc8-3286-47aa-8e7e-3b8d789e10ec"
       }
-    }
+    },
+    "owner": "ozgcetin20"
   }
 }
