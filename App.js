@@ -116,6 +116,12 @@ export default function App() {
     loadSavedData();
     setupAudioMode();
     requestPermissions();
+
+    return () => {
+      if (soundRef.current) {
+        soundRef.current.unloadAsync();
+      }
+    };
   }, []);
 
   function updateTrackSelection(trackIdx, playlistId = null, plTrackIdx = null) {
@@ -229,6 +235,8 @@ export default function App() {
       if (status.didJustFinish && !status.isLooping) {
         playNextTrack();
       }
+    } else if (status.error) {
+      console.log('Playback Error:', status.error);
     }
   }
 
@@ -243,8 +251,12 @@ export default function App() {
           style: 'destructive',
           onPress: async () => {
             if (soundRef.current) {
-              await soundRef.current.stopAsync();
-              await soundRef.current.unloadAsync();
+              try {
+                await soundRef.current.stopAsync();
+                await soundRef.current.unloadAsync();
+              } catch (e) {
+                console.log('Exit Error:', e);
+              }
             }
             BackHandler.exitApp();
           },
@@ -350,20 +362,24 @@ export default function App() {
 
       if (soundRef.current) {
         try {
+          soundRef.current.setOnPlaybackStatusUpdate(null);
           await soundRef.current.stopAsync();
           await soundRef.current.unloadAsync();
         } catch (err) {
-          console.log('Unload error:', err);
+          console.log('Unload warning:', err);
         }
+        soundRef.current = null;
+        setSound(null);
       }
 
       const { sound: newSound } = await Audio.Sound.createAsync(
         { uri: track.uri },
-        { shouldPlay: true }
+        { shouldPlay: true, progressUpdateIntervalMillis: 500 }
       );
 
       newSound.setOnPlaybackStatusUpdate(handlePlaybackStatusUpdate);
       setSound(newSound);
+      soundRef.current = newSound;
       setIsPlaying(true);
       setLoading(false);
     } catch (e) {
@@ -953,7 +969,7 @@ export default function App() {
               value={positionMillis}
               minimumTrackTintColor="#ffd700"
               maximumTrackTintColor={isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}
-              thumbTintColor="#ffd700}
+              thumbTintColor="#ffd700"
               onSlidingStart={() => setIsSeeking(true)}
               onValueChange={(val) => {
                 setPositionMillis(val);
